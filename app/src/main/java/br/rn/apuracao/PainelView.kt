@@ -260,7 +260,7 @@ class PainelView(ctx: Context) : View(ctx) {
             val t = y; val b = y + rowH - gap
             val hh = b - t
             // nos majoritários os N primeiros ocupam as vagas; nos proporcionais depende do QP
-            val dentro = !cargo.proporcional && pos <= cargo.vagas
+            val dentro = !cargo.proporcional && pos <= cargo.vagas && cand.votos > 0
             rect(c, pad, t, w - pad, b, if (dentro) CARD2 else CARD, 1.2f * u)
             when {
                 cand.eleito -> rect(c, pad, t, pad + 0.9f * u, b, VERDE, 0.45f * u)
