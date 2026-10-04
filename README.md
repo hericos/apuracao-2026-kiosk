@@ -1,0 +1,52 @@
+# Apuração 2026 — Kiosk
+
+App Android para deixar um tablet **em pé** acompanhando a apuração das Eleições Gerais de 2026
+(1º turno, 04/10/2026), com dados oficiais do TSE (`resultados.tse.jus.br`).
+
+## Telas (rodízio a cada 10 s)
+
+| # | Cargo | Abrangência | Vagas |
+|---|-------|-------------|-------|
+| 1 | Presidente | Brasil | 1 |
+| 2 | Governador | RN | 1 |
+| 3 | Senador | RN | 2 |
+| 4 | Deputado Federal — 1º ao 30º | RN | 8 |
+| 5 | Deputado Federal — 31º ao 60º | RN | 8 |
+| 6 | Deputado Estadual — 1º ao 30º | RN | 24 |
+| 7 | Deputado Estadual — 31º ao 60º | RN | 24 |
+
+Cada tela mostra o percentual de seções totalizadas, votos e percentual de cada candidato, além de
+válidos/brancos/nulos/abstenção. Nas telas proporcionais, uma linha dourada marca a quantidade de vagas
+e os eleitos confirmados pelo TSE aparecem em verde com ✔ (a eleição proporcional segue o quociente
+partidário, não apenas a ordem de votos).
+
+## Atualização
+
+- 1 requisição a cada **5 s** para **cada** cargo, em paralelo (usa `If-Modified-Since`).
+- Endpoints (`dados-simplificados`):
+  - Presidente: `ele2026/6257/dados-simplificados/br/br-c0001-e006257-r.json`
+  - RN: `ele2026/6259/dados-simplificados/rn/rn-c000{3,5,6,7}-e006259-r.json`
+- Antes da divulgação (HTTP 403/404) mostra "Aguardando divulgação do TSE".
+
+## Uso
+
+- Tela sempre ligada, tela cheia, orientação retrato.
+- **Toque**: avança para a próxima tela.
+- **Toque longo**: liga/desliga o **modo demonstração** (dados fictícios para testar o layout).
+
+## Build
+
+Requer JDK 17 e Android SDK (compileSdk 35). Sem dependências externas.
+
+```bash
+./gradlew assembleRelease
+```
+
+APK: `app/build/outputs/apk/release/app-release.apk` (assinado com a chave de debug para instalação direta).
+
+Código principal em `app/src/main/java/br/rn/apuracao/`:
+
+- `Dados.kt` — cargos, URLs, vagas e parser do JSON do TSE
+- `Coletor.kt` — consultas periódicas e modo demonstração
+- `PainelView.kt` — renderização da tela (Canvas, escala para qualquer tamanho)
+- `MainActivity.kt` — rodízio de telas e modo kiosk
