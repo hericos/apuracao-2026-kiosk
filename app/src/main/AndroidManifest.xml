@@ -20,5 +20,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ConfigActivity"
+            android:exported="false"
+            android:label="Configurações"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:screenOrientation="sensorPortrait" />
     </application>
 </manifest>

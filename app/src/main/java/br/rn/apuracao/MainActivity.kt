@@ -1,31 +1,23 @@
 package br.rn.apuracao
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
-import android.widget.Toast
 
 class MainActivity : Activity() {
 
     companion object {
-        const val TROCA_TELA_MS = 10_000L
         const val CONSULTA_MS = 5_000L
     }
 
-    /** Ordem do rodízio: deputados têm 2 páginas (1º–30º e 31º–60º). */
-    private val telas = listOf(
-        Tela(Cargo.PRESIDENTE, 0),
-        Tela(Cargo.GOVERNADOR, 0),
-        Tela(Cargo.SENADOR, 0),
-        Tela(Cargo.DEP_FEDERAL, 0),
-        Tela(Cargo.DEP_FEDERAL, 1),
-        Tela(Cargo.DEP_ESTADUAL, 0),
-        Tela(Cargo.DEP_ESTADUAL, 1),
-    )
+    /** Ordem do rodízio, tempo por tela e modo de teste vêm das configurações (toque longo). */
+    private var telas: List<Tela> = Config.TELAS_PADRAO
+    private var trocaTelaMs = Config.SEGUNDOS_PADRAO * 1000L
 
     private val ui = Handler(Looper.getMainLooper())
     private lateinit var painel: PainelView
@@ -36,8 +28,8 @@ class MainActivity : Activity() {
     private val tick = object : Runnable {
         override fun run() {
             val agora = SystemClock.uptimeMillis()
-            if (agora - inicioTela >= TROCA_TELA_MS) irPara(idx + 1)
-            painel.progressoTela = (agora - inicioTela) / TROCA_TELA_MS.toFloat()
+            if (agora - inicioTela >= trocaTelaMs) irPara(idx + 1)
+            painel.progressoTela = (agora - inicioTela) / trocaTelaMs.toFloat()
             painel.invalidate()
             ui.postDelayed(this, 200)
         }
@@ -53,15 +45,23 @@ class MainActivity : Activity() {
             ui.post { if (telas[idx].cargo == cargo) atualizarPainel() }
         }
 
-        // Toque: avança a tela. Toque longo: liga/desliga modo demonstração.
+        // Toque: avança a tela. Toque longo: abre as configurações.
         painel.setOnClickListener { irPara(idx + 1) }
         painel.setOnLongClickListener {
-            coletor.demo = !coletor.demo
-            painel.demo = coletor.demo
-            Toast.makeText(this, if (coletor.demo) "Modo demonstração LIGADO" else "Dados reais do TSE", Toast.LENGTH_SHORT).show()
+            startActivity(Intent(this, ConfigActivity::class.java))
             true
         }
-        irPara(0)
+    }
+
+    private fun aplicarConfig() {
+        val cfg = Config.carregar(this)
+        val atual = telas.getOrNull(idx)
+        telas = cfg.telasAtivas
+        trocaTelaMs = cfg.segundos * 1000L
+        if (coletor.demo != cfg.demo) coletor.demo = cfg.demo
+        painel.demo = cfg.demo
+        // continua na mesma tela se ela ainda estiver visível; senão volta ao início
+        irPara(telas.indexOf(atual).coerceAtLeast(0))
     }
 
     private fun irPara(novo: Int) {
@@ -84,7 +84,9 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         telaCheia()
-        coletor.iniciar()
+        aplicarConfig()
+        // consulta apenas os cargos que têm alguma tela visível
+        coletor.iniciar(telas.map { it.cargo }.toSet())
         ui.removeCallbacks(tick)
         ui.post(tick)
     }

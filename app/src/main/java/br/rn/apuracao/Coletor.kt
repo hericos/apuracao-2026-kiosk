@@ -27,13 +27,17 @@ class Coletor(
     private var exec: ScheduledExecutorService? = null
 
     @Volatile var demo = false
-        set(v) { field = v; demoTick = 0; lastModified.clear() }
+        set(v) {
+            field = v; demoTick = 0; lastModified.clear()
+            // descarta resultados do modo anterior (teste x real)
+            Cargo.entries.forEach { estados[it] = Estado.Carregando }
+        }
     private var demoTick = 0
 
-    fun iniciar() {
+    fun iniciar(cargos: Set<Cargo> = Cargo.entries.toSet()) {
         if (exec != null) return
-        exec = Executors.newScheduledThreadPool(Cargo.entries.size).also { ex ->
-            Cargo.entries.forEachIndexed { i, cargo ->
+        exec = Executors.newScheduledThreadPool(cargos.size.coerceAtLeast(1)).also { ex ->
+            cargos.forEachIndexed { i, cargo ->
                 // escalona levemente o início para não disparar tudo no mesmo milissegundo
                 ex.scheduleAtFixedRate({ buscar(cargo) }, i * 300L, intervaloMs, TimeUnit.MILLISECONDS)
             }

@@ -3,7 +3,7 @@
 App Android para deixar um tablet **em pé** acompanhando a apuração das Eleições Gerais de 2026
 (1º turno, 04/10/2026), com dados oficiais do TSE (`resultados.tse.jus.br`).
 
-## Telas (rodízio a cada 10 s)
+## Telas (rodízio padrão a cada 10 s, configurável)
 
 | # | Cargo | Abrangência | Vagas |
 |---|-------|-------------|-------|
@@ -32,7 +32,11 @@ partidário, não apenas a ordem de votos).
 
 - Tela sempre ligada, tela cheia, orientação retrato.
 - **Toque**: avança para a próxima tela.
-- **Toque longo**: liga/desliga o **modo demonstração** (dados fictícios para testar o layout).
+- **Toque longo**: abre as **Configurações** (salvas automaticamente):
+  - tempo em cada tela (3 a 120 s, padrão 10 s);
+  - ordem das telas (▲ ▼);
+  - ocultar telas (só os cargos com tela visível são consultados no TSE);
+  - usar dados de teste (modo demonstração) ou dados reais do TSE.
 
 ## Build
 
@@ -50,3 +54,4 @@ Código principal em `app/src/main/java/br/rn/apuracao/`:
 - `Coletor.kt` — consultas periódicas e modo demonstração
 - `PainelView.kt` — renderização da tela (Canvas, escala para qualquer tamanho)
 - `MainActivity.kt` — rodízio de telas e modo kiosk
+- `Config.kt` / `ConfigActivity.kt` — configurações (tempo, ordem, telas ocultas, dados de teste)
