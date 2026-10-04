@@ -16,16 +16,18 @@ App Android para deixar um tablet **em pé** acompanhando a apuração das Elei�
 | 7 | Deputado Estadual — 16º ao 30º | RN | 24 |
 
 Todas as telas usam a mesma grade de **15 candidatos**. Cada tela mostra o percentual de seções totalizadas,
-votos e percentual de cada candidato e, em destaque no rodapé, válidos, brancos, nulos e abstenção. Nas telas proporcionais, uma linha dourada marca a quantidade de vagas
-e os eleitos confirmados pelo TSE aparecem em verde com ✔ (a eleição proporcional segue o quociente
-partidário, não apenas a ordem de votos).
+votos e percentual de cada candidato e, em destaque no rodapé, válidos, brancos, nulos e abstenção. Nas telas de deputado aparecem o **quociente eleitoral**, as **vagas por partido/federação** e os candidatos
+**dentro das vagas** em destaque ("NA VAGA"). Usa a distribuição oficial do TSE (campos `qe` e `vag`) quando
+publicada; até lá, projeta pelo quociente partidário (10% do QE), sobras com 80%/20% e sobras finais entre
+todos (decisão do STF de 2024) — ver `Projecao.kt` e `ProjecaoTest.kt`. Eleitos confirmados pelo TSE aparecem
+em verde com ✔.
 
 ## Atualização
 
 - 1 requisição a cada **5 s** para **cada** cargo, em paralelo (usa `If-Modified-Since`).
-- Endpoints (`dados-simplificados`):
-  - Presidente: `ele2026/6257/dados-simplificados/br/br-c0001-e006257-r.json`
-  - RN: `ele2026/6259/dados-simplificados/rn/rn-c000{3,5,6,7}-e006259-r.json`
+- Endpoints (arquivo completo `-u.json`, publicado desde a véspera com votos zerados):
+  - Presidente: `ele2026/6257/dados/br/br-c0001-e006257-u.json`
+  - RN: `ele2026/6259/dados/rn/rn-c000{3,5,6,7}-e006259-u.json`
 - Antes da divulgação (HTTP 403/404) mostra "Aguardando divulgação do TSE".
 
 ## Uso
@@ -52,6 +54,7 @@ Código principal em `app/src/main/java/br/rn/apuracao/`:
 
 - `Dados.kt` — cargos, URLs, vagas e parser do JSON do TSE
 - `Coletor.kt` — consultas periódicas e modo demonstração
+- `Projecao.kt` — distribuição das vagas proporcionais (oficial do TSE ou projeção)
 - `PainelView.kt` — renderização da tela (Canvas, escala para qualquer tamanho)
 - `MainActivity.kt` — rodízio de telas e modo kiosk
 - `Config.kt` / `ConfigActivity.kt` — configurações (tempo, ordem, telas ocultas, dados de teste)

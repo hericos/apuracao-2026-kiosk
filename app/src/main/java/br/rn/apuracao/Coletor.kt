@@ -73,7 +73,7 @@ class Coletor(
                 when (val code = con.responseCode) {
                     200 -> {
                         val body = con.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                        val r = Parser.parse(body)
+                        val r = Parser.parse(body, cargo)
                         con.getHeaderField("Last-Modified")?.let { lastModified[cargo] = it }
                         estados[cargo] = Estado.Ok(r, System.currentTimeMillis())
                     }
@@ -126,13 +126,21 @@ object Demo {
             val num = if (cargo.proporcional) "${10 + i % 80}${100 + i}" else "${10 + i * 5}"
             Candidato(num, "${nomes[(i * 7) % nomes.size]} ${sobrenomes[(i * 3) % sobrenomes.size]}",
                 partidos[i % partidos.size], v, if (validos > 0) v * 100.0 / validos else 0.0,
-                fim && i < cargo.vagas, if (fim && i < cargo.vagas) "Eleito" else "")
+                fim && !cargo.proporcional && i < cargo.vagas,
+                if (fim && !cargo.proporcional && i < cargo.vagas) "Eleito" else "",
+                agr = partidos[i % partidos.size])
         }.sortedByDescending { it.votos }
         val secoes = if (cargo == Cargo.PRESIDENTE) 472_000L else 7_900L
         return Resultado(
             apurado, (secoes * apurado / 100).toLong(), secoes, "DEMONSTRAÇÃO",
             validos, 91.2, (validos * 0.03).toLong(), 2.9, (validos * 0.06).toLong(), 5.9,
             (eleitorado * 0.2 * apurado / 100).toLong(), 20.1, cands
-        )
+        ).comVagas(cargo, demoAgremiacoes(cands), 0)
     }
 }
+
+/** Agremiações fictícias: votos nominais dos candidatos + 5% de votos de legenda. */
+private fun demoAgremiacoes(cands: List<Candidato>): Map<String, Agremiacao> =
+    cands.groupBy { it.agr }.mapValues { (id, l) ->
+        Agremiacao(id, id, (l.sumOf { it.votos } * 1.05).toLong(), 0)
+    }

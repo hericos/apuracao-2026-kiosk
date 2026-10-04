@@ -148,15 +148,20 @@ class PainelView(ctx: Context) : View(ctx) {
         }
         y += 13f * u
 
-        // ---------- Regra do cargo (mesma altura em todas as telas) ----------
-        val regra = when (cargo) {
+        // ---------- Regra do cargo / vagas por partido (2 linhas em todas as telas) ----------
+        val (linha1, linha2) = when (cargo) {
             Cargo.PRESIDENTE, Cargo.GOVERNADOR ->
-                "Eleito no 1º turno quem tiver mais da metade dos votos válidos; senão, os 2 primeiros vão ao 2º turno."
-            Cargo.SENADOR -> "Os 2 mais votados são eleitos (maioria simples)."
-            else -> "Proporcional: eleitos definidos pelo quociente partidário · ✔ = eleito confirmado pelo TSE"
+                "Eleito no 1º turno quem tiver mais da metade dos votos válidos;" to
+                    "senão, os 2 mais votados disputam o 2º turno."
+            Cargo.SENADOR -> "Os 2 mais votados são eleitos (maioria simples)." to ""
+            else -> regraProporcional(res, cargo)
         }
-        texto(c, regra, w / 2, y + 2.2f * u, 2f * u, TXT2, condensed, Paint.Align.CENTER, w - 2 * pad)
-        y += 3.8f * u
+        texto(c, linha1, w / 2, y + 2.2f * u, 2f * u, TXT2, condensed, Paint.Align.CENTER, w - 2 * pad)
+        // a lista de vagas por partido encolhe até caber numa linha
+        tp.typeface = condensedB; tp.textSize = 2.1f * u
+        val tam2 = (2.1f * u * (w - 2 * pad) / tp.measureText(linha2).coerceAtLeast(1f)).coerceIn(1.5f * u, 2.1f * u)
+        texto(c, linha2, w / 2, y + 5f * u, tam2, clarear(cargo.cor), condensedB, Paint.Align.CENTER, w - 2 * pad)
+        y += 6.6f * u
 
         // ---------- Rodapé: totais (maiores) + indicadores ----------
         val indicH = 5f * u
@@ -229,11 +234,22 @@ class PainelView(ctx: Context) : View(ctx) {
         texto(c, pagTxt, w - pad, fy + 2 * dot, 1.8f * u, TXT2, condensed, Paint.Align.RIGHT)
     }
 
+    private fun regraProporcional(res: Resultado?, cargo: Cargo): Pair<String, String> {
+        if (res == null || res.qe <= 0)
+            return "Proporcional: ${cargo.vagas} vagas distribuídas pelo quociente partidário" to
+                "Quociente eleitoral e vagas por partido aparecem quando houver votos apurados"
+        val fonte = if (res.vagasOficiais) "distribuição oficial do TSE" else "projeção pelo quociente partidário e sobras"
+        val vagas = res.vagasPorAgr.joinToString(" · ") { (sg, n) -> "$sg $n" }
+        return "Quociente eleitoral ${int(res.qe)} votos  ·  em destaque: dentro das vagas ($fonte)" to
+            "VAGAS: $vagas"
+    }
+
     private fun chipSituacao(cand: Candidato): Pair<String, Int>? {
         val s = cand.situacao.lowercase(br)
         return when {
             cand.eleito -> "ELEITO" to VERDE
             s.contains("2º turno") || s.contains("2o turno") || s.contains("segundo turno") -> "2º TURNO" to OURO
+            cand.naVaga -> "NA VAGA" to OURO
             s.contains("suplente") -> "SUPLENTE" to TXT2
             else -> null
         }
@@ -254,13 +270,12 @@ class PainelView(ctx: Context) : View(ctx) {
         }
         val maxPct = (res.candidatos.firstOrNull()?.pct ?: 1.0).coerceAtLeast(0.01)
         var y = top
-        var linhaVagas = -1f
         lista.forEachIndexed { i, cand ->
             val pos = ini + i + 1
             val t = y; val b = y + rowH - gap
             val hh = b - t
-            // nos majoritários os N primeiros ocupam as vagas; nos proporcionais depende do QP
-            val dentro = !cargo.proporcional && pos <= cargo.vagas && cand.votos > 0
+            // majoritários: os N primeiros; proporcionais: distribuição do TSE ou projeção do QP
+            val dentro = if (cargo.proporcional) cand.naVaga else pos <= cargo.vagas && cand.votos > 0
             rect(c, pad, t, w - pad, b, if (dentro) CARD2 else CARD, 1.2f * u)
             when {
                 cand.eleito -> rect(c, pad, t, pad + 0.9f * u, b, VERDE, 0.45f * u)
@@ -269,7 +284,7 @@ class PainelView(ctx: Context) : View(ctx) {
 
             // posição
             texto(c, "$pos", pad + 6f * u, t + hh * 0.66f, hh * 0.46f,
-                if (dentro || pos <= cargo.vagas) TXT else TXT2, condensedB, Paint.Align.RIGHT)
+                if (dentro || cand.eleito) TXT else TXT2, condensedB, Paint.Align.RIGHT)
 
             // nome e número · partido
             val nx = pad + 8.5f * u
@@ -299,18 +314,7 @@ class PainelView(ctx: Context) : View(ctx) {
             rect(c, bl, by, bl + (brr - bl) * (cand.pct / maxPct).toFloat().coerceIn(0f, 1f), by + hh * 0.05f,
                 if (dentro || cand.eleito) cargo.cor else TXT2, hh * 0.025f)
 
-            if (cargo.proporcional && pos == cargo.vagas) linhaVagas = b + gap / 2
             y += rowH
-        }
-        // linha dourada após a última vaga (proporcionais), desenhada por cima das linhas
-        if (linhaVagas > 0) {
-            val ly = linhaVagas
-            rect(c, pad, ly - 0.2f * u, w - pad, ly + 0.2f * u, OURO)
-            tp.textSize = 1.7f * u; tp.typeface = bold
-            val lbl = "${cargo.vagas} VAGAS"
-            val lw = tp.measureText(lbl) + 2f * u
-            rect(c, w / 2 - lw / 2, ly - 1.2f * u, w / 2 + lw / 2, ly + 1.2f * u, OURO, 0.6f * u)
-            texto(c, lbl, w / 2, ly + 0.6f * u, 1.7f * u, BG, bold, Paint.Align.CENTER)
         }
     }
 

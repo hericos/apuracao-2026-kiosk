@@ -50,6 +50,8 @@ data class Candidato(
     val pct: Double,
     val eleito: Boolean,
     val situacao: String,
+    val agr: String = "",          // agremiação (partido isolado ou federação)
+    val naVaga: Boolean = false,   // dentro das vagas proporcionais (oficial ou projeção)
 )
 
 data class Resultado(
@@ -62,7 +64,22 @@ data class Resultado(
     val nulos: Long, val pctNulos: Double,
     val abstencao: Long, val pctAbstencao: Double,
     val candidatos: List<Candidato>,
-)
+    // só para cargos proporcionais
+    val qe: Long = 0,
+    val vagasPorAgr: List<Pair<String, Int>> = emptyList(),
+    val vagasOficiais: Boolean = false,
+) {
+    /** Aplica a distribuição de vagas (oficial do TSE ou projeção) aos candidatos. */
+    fun comVagas(cargo: Cargo, agrs: Map<String, Agremiacao>, qeTse: Long): Resultado {
+        if (!cargo.proporcional) return this
+        val p = Projecao.calcular(candidatos, agrs, cargo.vagas, qeTse, validos)
+            ?: return copy(qe = qeTse)
+        return copy(
+            candidatos = candidatos.map { it.copy(naVaga = it.numero in p.naVaga) },
+            qe = p.qe, vagasPorAgr = p.vagasPorAgr, vagasOficiais = p.oficial,
+        )
+    }
+}
 
 object Parser {
     private val ordemAlfabetica = java.text.Collator.getInstance(java.util.Locale("pt", "BR"))
@@ -85,21 +102,37 @@ object Parser {
     /**
      * Junta os candidatos de qualquer aninhamento. No arquivo completo do TSE (`-u.json`) eles ficam em
      * carg → agr (agremiação) → par (partido, com a sigla em "sg") → cand; no simplificado, direto em "cand".
+     * Também registra cada agremiação com seus votos (nominais + legenda) e vagas oficiais.
      */
-    private fun coletar(o: JSONObject, sigla: String, out: MutableList<Candidato>) {
+    private fun coletar(
+        o: JSONObject, sigla: String, agr: String,
+        out: MutableList<Candidato>, agrs: MutableMap<String, Agremiacao>,
+    ) {
         val sg = o.optString("sg").ifBlank { sigla }
+        var agrId = agr
+        if (o.has("par") && o.optString("n").isNotBlank()) {
+            agrId = o.optString("n")
+            agrs[agrId] = Agremiacao(
+                id = agrId,
+                sigla = o.optString("com").ifBlank { o.optString("nm") }.replace(" / ", "/").trim(),
+                votos = o.num("tvtn") + o.num("tvtl"),
+                vagasTse = o.num("vag").toInt(),
+            )
+        }
         o.optJSONArray("cand")?.let { arr ->
             for (i in 0 until arr.length()) {
                 val c = arr.optJSONObject(i) ?: continue
                 val st = c.optString("st").trim()
+                val part = c.optString("cc").takeIf { it.isNotBlank() }?.let(::partido) ?: sg
                 out += Candidato(
                     numero = c.optString("n"),
                     nome = c.optString("nmu").ifBlank { c.optString("nm") }.trim(),
-                    partido = c.optString("cc").takeIf { it.isNotBlank() }?.let(::partido) ?: sg,
+                    partido = part,
                     votos = c.num("vap"),
                     pct = c.pct("pvap"),
                     eleito = c.optString("e").equals("s", true) || st.startsWith("Eleito", true),
                     situacao = st,
+                    agr = agrId.ifBlank { part },   // formato simplificado: agrupa por partido
                 )
             }
         }
@@ -108,15 +141,21 @@ object Parser {
             val k = keys.next()
             if (k == "cand") continue
             when (val v = o.opt(k)) {
-                is JSONObject -> coletar(v, sg, out)
-                is JSONArray -> for (i in 0 until v.length()) (v.opt(i) as? JSONObject)?.let { coletar(it, sg, out) }
+                is JSONObject -> coletar(v, sg, agrId, out, agrs)
+                is JSONArray -> for (i in 0 until v.length()) {
+                    (v.opt(i) as? JSONObject)?.let { coletar(it, sg, agrId, out, agrs) }
+                }
             }
         }
     }
 
-    fun parse(json: String): Resultado {
+    private fun acharQe(o: JSONObject): Long =
+        o.optJSONArray("carg")?.optJSONObject(0)?.num("qe") ?: o.num("qe")
+
+    fun parse(json: String, cargo: Cargo): Resultado {
         val o = JSONObject(json)
-        val cands = mutableListOf<Candidato>().also { coletar(o, "", it) }
+        val agrs = mutableMapOf<String, Agremiacao>()
+        val cands = mutableListOf<Candidato>().also { coletar(o, "", "", it, agrs) }
             .sortedWith(compareByDescending<Candidato> { it.votos }.thenBy(ordemAlfabetica) { it.nome })
 
         // No arquivo completo os totais ficam em "s" (seções), "e" (eleitorado) e "v" (votos);
@@ -136,6 +175,6 @@ object Parser {
             pctNulos = v.pct("ptvn").takeIf { it > 0 } ?: v.pct("pvn"),
             abstencao = e.num("a"), pctAbstencao = e.pct("pa"),
             candidatos = cands,
-        )
+        ).comVagas(cargo, agrs, acharQe(o))
     }
 }
