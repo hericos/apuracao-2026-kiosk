@@ -10,13 +10,13 @@ App Android para deixar um tablet **em pé** acompanhando a apuração das Elei�
 | 1 | Presidente | Brasil | 1 |
 | 2 | Governador | RN | 1 |
 | 3 | Senador | RN | 2 |
-| 4 | Deputado Federal — 1º ao 30º | RN | 8 |
-| 5 | Deputado Federal — 31º ao 60º | RN | 8 |
-| 6 | Deputado Estadual — 1º ao 30º | RN | 24 |
-| 7 | Deputado Estadual — 31º ao 60º | RN | 24 |
+| 4 | Deputado Federal — 1º ao 15º | RN | 8 |
+| 5 | Deputado Federal — 16º ao 30º | RN | 8 |
+| 6 | Deputado Estadual — 1º ao 15º | RN | 24 |
+| 7 | Deputado Estadual — 16º ao 30º | RN | 24 |
 
-Cada tela mostra o percentual de seções totalizadas, votos e percentual de cada candidato, além de
-válidos/brancos/nulos/abstenção. Nas telas proporcionais, uma linha dourada marca a quantidade de vagas
+Todas as telas usam a mesma grade de **15 candidatos**. Cada tela mostra o percentual de seções totalizadas,
+votos e percentual de cada candidato e, em destaque no rodapé, válidos, brancos, nulos e abstenção. Nas telas proporcionais, uma linha dourada marca a quantidade de vagas
 e os eleitos confirmados pelo TSE aparecem em verde com ✔ (a eleição proporcional segue o quociente
 partidário, não apenas a ordem de votos).
 

@@ -6,19 +6,27 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.os.Build
 import android.text.TextPaint
 import android.text.TextUtils
 import android.view.View
+import android.view.WindowInsets
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 import kotlin.math.min
 
-/** Uma "tela" do rodízio: um cargo e uma página (0 = 1º ao 30º, 1 = 31º ao 60º). */
+/** Uma "tela" do rodízio: um cargo e uma página (0 = 1º ao 15º, 1 = 16º ao 30º). */
 data class Tela(val cargo: Cargo, val pagina: Int)
 
 class PainelView(ctx: Context) : View(ctx) {
+
+    companion object {
+        /** Todas as telas usam a mesma grade de linhas, para manter as proporções iguais. */
+        const val POR_PAGINA = 15
+    }
 
     var tela: Tela = Tela(Cargo.PRESIDENTE, 0)
     var estado: Estado = Estado.Carregando
@@ -26,6 +34,8 @@ class PainelView(ctx: Context) : View(ctx) {
     var total = 1
     var progressoTela = 0f      // 0..1 até a próxima troca
     var demo = false
+
+    private var insetTopo = 0   // recorte da câmera/notch, quando houver
 
     private val br = Locale("pt", "BR")
     private val fmtInt = NumberFormat.getIntegerInstance(br)
@@ -43,6 +53,8 @@ class PainelView(ctx: Context) : View(ctx) {
     private val OURO = Color.parseColor("#F2B705")
     private val VERDE = Color.parseColor("#2ECC71")
     private val VERMELHO = Color.parseColor("#FF6B6B")
+    private val AZUL = Color.parseColor("#4DA3FF")
+    private val CINZA = Color.parseColor("#B8C4D2")
 
     private val condensed = Typeface.create("sans-serif-condensed", Typeface.NORMAL)
     private val condensedB = Typeface.create("sans-serif-condensed", Typeface.BOLD)
@@ -54,6 +66,12 @@ class PainelView(ctx: Context) : View(ctx) {
 
     private fun pct(v: Double) = fmtPct.format(v) + "%"
     private fun int(v: Long) = fmtInt.format(v)
+
+    override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+        insetTopo = if (Build.VERSION.SDK_INT >= 28) insets.displayCutout?.safeInsetTop ?: 0 else 0
+        invalidate()
+        return super.onApplyWindowInsets(insets)
+    }
 
     private fun texto(
         c: Canvas, s: String, x: Float, y: Float, size: Float, color: Int,
@@ -82,9 +100,9 @@ class PainelView(ctx: Context) : View(ctx) {
             else -> null
         }
 
-        // ---------- Cabeçalho ----------
-        var y = pad
-        texto(c, if (demo) "ELEIÇÕES 2026 · 1º TURNO · MODO DEMONSTRAÇÃO" else "ELEIÇÕES 2026 · 1º TURNO",
+        // ---------- Cabeçalho (com folga extra no topo) ----------
+        var y = max(pad + 3f * u, insetTopo + 2f * u)
+        texto(c, if (demo) "ELEIÇÕES 2026 · 1º TURNO · DADOS DE TESTE" else "ELEIÇÕES 2026 · 1º TURNO",
             pad, y + 2.6f * u, 2.4f * u, if (demo) OURO else TXT2, bold)
         val statusTxt = when (val e = estado) {
             is Estado.Ok -> "● AO VIVO  ·  consulta ${fmtHora.format(Date(e.recebidoEm))}"
@@ -109,7 +127,7 @@ class PainelView(ctx: Context) : View(ctx) {
         val seloW = tp.measureText(vagasLabel) + 4f * u
         rect(c, w - pad - seloW, y + 0.8f * u, w - pad, y + 6.6f * u, cargo.cor, 1.2f * u)
         texto(c, vagasLabel, w - pad - seloW / 2, y + 5f * u, 3.6f * u, Color.WHITE, condensedB, Paint.Align.CENTER)
-        val sub = if (cargo.proporcional) "em disputa no RN" else if (cargo == Cargo.PRESIDENTE) "em disputa" else "em disputa no RN"
+        val sub = if (cargo == Cargo.PRESIDENTE) "em disputa" else "em disputa no RN"
         texto(c, sub, w - pad - seloW / 2, y + 9.4f * u, 2.3f * u, TXT2, condensed, Paint.Align.CENTER)
         y += 13.5f * u
 
@@ -128,12 +146,25 @@ class PainelView(ctx: Context) : View(ctx) {
         res?.atualizado?.takeIf { it.isNotBlank() }?.let {
             texto(c, "Atualização TSE: $it", w - pad - 2.5f * u, y + 11.3f * u, 1.9f * u, TXT2, condensed, Paint.Align.RIGHT)
         }
-        y += 14f * u
+        y += 13f * u
 
-        // ---------- Rodapé (reserva espaço) ----------
-        val rodapeH = 9f * u
+        // ---------- Regra do cargo (mesma altura em todas as telas) ----------
+        val regra = when (cargo) {
+            Cargo.PRESIDENTE, Cargo.GOVERNADOR ->
+                "Eleito no 1º turno quem tiver mais da metade dos votos válidos; senão, os 2 primeiros vão ao 2º turno."
+            Cargo.SENADOR -> "Os 2 mais votados são eleitos (maioria simples)."
+            else -> "Proporcional: eleitos definidos pelo quociente partidário · ✔ = eleito confirmado pelo TSE"
+        }
+        texto(c, regra, w / 2, y + 2.2f * u, 2f * u, TXT2, condensed, Paint.Align.CENTER, w - 2 * pad)
+        y += 3.8f * u
+
+        // ---------- Rodapé: totais (maiores) + indicadores ----------
+        val indicH = 5f * u
+        val totaisH = 13f * u
+        val bottom = h - pad
+        val totaisTop = bottom - indicH - totaisH
         val corpoTop = y
-        val corpoBot = h - pad - rodapeH
+        val corpoBot = totaisTop - 1.5f * u
 
         if (res == null || res.candidatos.isEmpty()) {
             val (l1, l2) = when (estado) {
@@ -144,23 +175,43 @@ class PainelView(ctx: Context) : View(ctx) {
             val cy = (corpoTop + corpoBot) / 2
             texto(c, l1, w / 2, cy, 4.5f * u, TXT, condensedB, Paint.Align.CENTER, w - 2 * pad)
             texto(c, l2, w / 2, cy + 5f * u, 2.6f * u, TXT2, condensed, Paint.Align.CENTER, w - 2 * pad)
-        } else if (cargo.proporcional) {
-            desenharProporcional(c, res, cargo, u, pad, w, corpoTop, corpoBot)
         } else {
-            desenharMajoritario(c, res, cargo, u, pad, w, corpoTop, corpoBot)
+            desenharLista(c, res, cargo, u, pad, w, corpoTop, corpoBot)
         }
 
-        // ---------- Rodapé ----------
-        var fy = h - pad - rodapeH + 1.5f * u
-        if (res != null) {
-            val tot = "Válidos ${int(res.validos)} (${pct(res.pctValidos)})   ·   Brancos ${pct(res.pctBrancos)}   ·   " +
-                "Nulos ${pct(res.pctNulos)}   ·   Abstenção ${pct(res.pctAbstencao)}"
-            texto(c, tot, w / 2, fy + 2f * u, 2.1f * u, TXT2, condensed, Paint.Align.CENTER, w - 2 * pad)
+        desenharTotais(c, res, u, pad, w, totaisTop, totaisTop + totaisH)
+        desenharIndicadores(c, cargo, u, pad, w, bottom - indicH, bottom)
+    }
+
+    /** 4 blocos grandes: válidos, brancos, nulos e abstenção. */
+    private fun desenharTotais(c: Canvas, res: Resultado?, u: Float, pad: Float, w: Float, top: Float, bot: Float) {
+        data class Bloco(val rotulo: String, val pct: Double?, val votos: Long?, val cor: Int)
+        val blocos = listOf(
+            Bloco("VÁLIDOS", res?.pctValidos, res?.validos, VERDE),
+            Bloco("BRANCOS", res?.pctBrancos, res?.brancos, CINZA),
+            Bloco("NULOS", res?.pctNulos, res?.nulos, VERMELHO),
+            Bloco("ABSTENÇÃO", res?.pctAbstencao, res?.abstencao, AZUL),
+        )
+        val gap = 1.2f * u
+        val bw = (w - 2 * pad - gap * (blocos.size - 1)) / blocos.size
+        val bh = bot - top
+        blocos.forEachIndexed { i, b ->
+            val l = pad + i * (bw + gap)
+            rect(c, l, top, l + bw, bot, CARD, 1.5f * u)
+            rect(c, l, top, l + bw, top + 0.6f * u, b.cor, 0.3f * u)
+            val cx = l + bw / 2
+            texto(c, b.rotulo, cx, top + bh * 0.27f, 2.3f * u, TXT2, bold, Paint.Align.CENTER, bw - 2 * u)
+            texto(c, b.pct?.let { pct(it) } ?: "—", cx, top + bh * 0.66f, 5.2f * u, b.cor, condensedB,
+                Paint.Align.CENTER, bw - 1.5f * u)
+            texto(c, b.votos?.let { "${int(it)} votos" } ?: "", cx, top + bh * 0.88f, 2.3f * u, TXT, condensed,
+                Paint.Align.CENTER, bw - 1.5f * u)
         }
-        fy += 4f * u
-        // indicadores de tela
+    }
+
+    private fun desenharIndicadores(c: Canvas, cargo: Cargo, u: Float, pad: Float, w: Float, top: Float, bot: Float) {
         val dot = 1.1f * u; val gap = 1.2f * u
         val pillW = 6f * u
+        val fy = (top + bot) / 2 - dot
         val totW = (total - 1) * (2 * dot + gap) + pillW
         var dx = w / 2 - totW / 2
         for (i in 0 until total) {
@@ -188,122 +239,81 @@ class PainelView(ctx: Context) : View(ctx) {
         }
     }
 
-    private fun desenharMajoritario(
+    /** Lista única para todos os cargos: 15 linhas de mesma altura por tela. */
+    private fun desenharLista(
         c: Canvas, res: Resultado, cargo: Cargo, u: Float, pad: Float, w: Float, top: Float, bot: Float,
     ) {
-        val lista = res.candidatos.take(12)
-        val gap = 1.2f * u
-        val rowH = min((bot - top + gap) / lista.size, 15f * u)
-        var y = top
-        val maxPct = (lista.maxOfOrNull { it.pct } ?: 1.0).coerceAtLeast(1.0)
-        lista.forEachIndexed { i, cand ->
-            val t = y; val b = y + rowH - gap
-            val dentro = i < cargo.vagas
-            rect(c, pad, t, w - pad, b, if (dentro) CARD2 else CARD, 1.5f * u)
-            if (dentro) rect(c, pad, t, pad + 0.9f * u, b, cargo.cor, 0.45f * u)
-            val hh = b - t
-            // posição
-            texto(c, "${i + 1}º", pad + 6f * u, t + hh * 0.62f, hh * 0.34f, if (dentro) TXT else TXT2, condensedB, Paint.Align.CENTER)
-            // nome e partido
-            val nx = pad + 11.5f * u
-            val pctX = w - pad - 2.5f * u
-            val nomeMax = pctX - nx - 26f * u
-            texto(c, cand.nome, nx, t + hh * 0.46f, hh * 0.30f, TXT, condensedB, maxW = nomeMax)
-            texto(c, "${cand.numero} · ${cand.partido}", nx, t + hh * 0.74f, hh * 0.18f, TXT2, condensed, maxW = nomeMax)
-            // percentual e votos
-            texto(c, pct(cand.pct), pctX, t + hh * 0.52f, hh * 0.34f, if (dentro) cargo.cor.clarear() else TXT, condensedB, Paint.Align.RIGHT)
-            texto(c, "${int(cand.votos)} votos", pctX, t + hh * 0.78f, hh * 0.17f, TXT2, condensed, Paint.Align.RIGHT)
-            chipSituacao(cand)?.let { (txt, cor) ->
-                tp.textSize = hh * 0.16f; tp.typeface = bold
-                val cw = tp.measureText(txt) + 2f * u
-                val cx = pctX - 22f * u - cw
-                rect(c, cx, t + hh * 0.30f, cx + cw, t + hh * 0.52f, cor, 0.8f * u)
-                texto(c, txt, cx + cw / 2, t + hh * 0.47f, hh * 0.16f, BG, bold, Paint.Align.CENTER)
-            }
-            // barra
-            val bl = nx; val brr = w - pad - 2.5f * u
-            val by = b - hh * 0.12f
-            rect(c, bl, by, brr, by + hh * 0.06f, LINHA, hh * 0.03f)
-            rect(c, bl, by, bl + (brr - bl) * (cand.pct / maxPct).toFloat().coerceIn(0f, 1f), by + hh * 0.06f,
-                if (dentro) cargo.cor else TXT2, hh * 0.03f)
-            y += rowH
-        }
-    }
-
-    private fun desenharProporcional(
-        c: Canvas, res: Resultado, cargo: Cargo, u: Float, pad: Float, w: Float, top: Float, bot: Float,
-    ) {
-        val porPagina = 30
-        val ini = tela.pagina * porPagina
-        val lista = res.candidatos.drop(ini).take(porPagina)
-
-        // aviso sobre vagas proporcionais
-        val aviso = "Sistema proporcional: as ${cargo.vagas} vagas seguem o quociente partidário, não só a ordem de votos. ✔ = eleito confirmado pelo TSE"
-        texto(c, aviso, w / 2, top + 1.8f * u, 1.75f * u, TXT2, condensed, Paint.Align.CENTER, w - 2 * pad)
-        val tTop = top + 3.2f * u
-
-        val headerH = 3.2f * u
-        val rowH = (bot - tTop - headerH) / porPagina
-        val fs = rowH * 0.56f
-        val xPos = pad + 4.5f * u
-        val xNum = pad + 6.5f * u
-        val xNome = pad + 15f * u
-        val xPart = w - pad - 39f * u
-        val xVotos = w - pad - 13f * u
-        val xPct = w - pad - 1f * u
-
-        rect(c, pad, tTop, w - pad, tTop + headerH, CARD2, 0.8f * u)
-        val hy = tTop + headerH * 0.68f
-        val hs = 1.9f * u
-        texto(c, "#", xPos, hy, hs, TXT2, bold, Paint.Align.RIGHT)
-        texto(c, "Nº", xNum, hy, hs, TXT2, bold)
-        texto(c, "CANDIDATO", xNome, hy, hs, TXT2, bold)
-        texto(c, "PARTIDO", xPart, hy, hs, TXT2, bold)
-        texto(c, "VOTOS", xVotos, hy, hs, TXT2, bold, Paint.Align.RIGHT)
-        texto(c, "%", xPct, hy, hs, TXT2, bold, Paint.Align.RIGHT)
-
+        val ini = tela.pagina * POR_PAGINA
+        val lista = res.candidatos.drop(ini).take(POR_PAGINA)
+        val gap = 0.6f * u
+        val rowH = (bot - top + gap) / POR_PAGINA
         if (lista.isEmpty()) {
-            texto(c, "Sem candidatos nesta faixa (${ini + 1}º ao ${ini + porPagina}º)", w / 2, (tTop + bot) / 2,
+            texto(c, "Sem candidatos nesta faixa (${ini + 1}º ao ${ini + POR_PAGINA}º)", w / 2, (top + bot) / 2,
                 3f * u, TXT2, condensed, Paint.Align.CENTER)
             return
         }
-
         val maxPct = (res.candidatos.firstOrNull()?.pct ?: 1.0).coerceAtLeast(0.01)
-        var y = tTop + headerH
+        var y = top
+        var linhaVagas = -1f
         lista.forEachIndexed { i, cand ->
             val pos = ini + i + 1
-            val t = y; val b = y + rowH
-            if (i % 2 == 0) rect(c, pad, t, w - pad, b, CARD)
-            // barra de fundo proporcional aos votos
-            val barL = xNome - 1f * u
-            val barR = w - pad
-            fill.color = (cargo.cor and 0x00FFFFFF) or 0x30000000
-            r.set(barL, t + rowH * 0.12f, barL + (barR - barL) * (cand.pct / maxPct).toFloat().coerceIn(0f, 1f), b - rowH * 0.12f)
-            c.drawRect(r, fill)
-            if (cand.eleito) rect(c, pad, t, pad + 0.7f * u, b, VERDE)
-
-            val ty = t + rowH * 0.5f + fs * 0.36f
-            texto(c, "$pos", xPos, ty, fs, if (pos <= cargo.vagas) TXT else TXT2, condensedB, Paint.Align.RIGHT)
-            texto(c, cand.numero, xNum, ty, fs * 0.9f, TXT2, condensed)
-            val nome = if (cand.eleito) "✔ ${cand.nome}" else cand.nome
-            texto(c, nome, xNome, ty, fs, if (cand.eleito) VERDE else TXT, condensedB, maxW = xPart - xNome - 1.5f * u)
-            texto(c, cand.partido, xPart, ty, fs * 0.9f, TXT2, condensed, maxW = xVotos - xPart - 12f * u)
-            texto(c, int(cand.votos), xVotos, ty, fs, TXT, condensed, Paint.Align.RIGHT)
-            texto(c, pct(cand.pct), xPct, ty, fs, TXT, condensedB, Paint.Align.RIGHT)
-
-            // linha divisória após a quantidade de vagas
-            if (pos == cargo.vagas) {
-                fill.color = OURO
-                c.drawRect(pad, b - 0.15f * u, w - pad, b + 0.15f * u, fill)
+            val t = y; val b = y + rowH - gap
+            val hh = b - t
+            // nos majoritários os N primeiros ocupam as vagas; nos proporcionais depende do QP
+            val dentro = !cargo.proporcional && pos <= cargo.vagas
+            rect(c, pad, t, w - pad, b, if (dentro) CARD2 else CARD, 1.2f * u)
+            when {
+                cand.eleito -> rect(c, pad, t, pad + 0.9f * u, b, VERDE, 0.45f * u)
+                dentro -> rect(c, pad, t, pad + 0.9f * u, b, cargo.cor, 0.45f * u)
             }
+
+            // posição
+            texto(c, "$pos", pad + 6f * u, t + hh * 0.66f, hh * 0.46f,
+                if (dentro || pos <= cargo.vagas) TXT else TXT2, condensedB, Paint.Align.RIGHT)
+
+            // nome e número · partido
+            val nx = pad + 8.5f * u
+            val pctX = w - pad - 2f * u
+            val nomeMax = pctX - nx - 30f * u
+            val nome = if (cand.eleito) "✔ ${cand.nome}" else cand.nome
+            texto(c, nome, nx, t + hh * 0.50f, hh * 0.42f, if (cand.eleito) VERDE else TXT, condensedB, maxW = nomeMax)
+            texto(c, "${cand.numero} · ${cand.partido}", nx, t + hh * 0.82f, hh * 0.24f, TXT2, condensed, maxW = nomeMax)
+
+            // percentual e votos
+            texto(c, pct(cand.pct), pctX, t + hh * 0.52f, hh * 0.44f,
+                if (dentro) clarear(cargo.cor) else TXT, condensedB, Paint.Align.RIGHT)
+            texto(c, "${int(cand.votos)} votos", pctX, t + hh * 0.83f, hh * 0.24f, TXT2, condensed, Paint.Align.RIGHT)
+
+            chipSituacao(cand)?.let { (txt, cor) ->
+                tp.textSize = hh * 0.22f; tp.typeface = bold
+                val cw = tp.measureText(txt) + 2f * u
+                val cx = pctX - 19f * u - cw
+                rect(c, cx, t + hh * 0.22f, cx + cw, t + hh * 0.52f, cor, 0.8f * u)
+                texto(c, txt, cx + cw / 2, t + hh * 0.45f, hh * 0.22f, BG, bold, Paint.Align.CENTER)
+            }
+
+            // barra de votos (relativa ao 1º colocado)
+            val bl = nx; val brr = w - pad - 2f * u
+            val by = b - hh * 0.08f
+            rect(c, bl, by, brr, by + hh * 0.05f, LINHA, hh * 0.025f)
+            rect(c, bl, by, bl + (brr - bl) * (cand.pct / maxPct).toFloat().coerceIn(0f, 1f), by + hh * 0.05f,
+                if (dentro || cand.eleito) cargo.cor else TXT2, hh * 0.025f)
+
+            if (cargo.proporcional && pos == cargo.vagas) linhaVagas = b + gap / 2
             y += rowH
+        }
+        // linha dourada após a última vaga (proporcionais), desenhada por cima das linhas
+        if (linhaVagas > 0) {
+            val ly = linhaVagas
+            rect(c, pad, ly - 0.2f * u, w - pad, ly + 0.2f * u, OURO)
+            tp.textSize = 1.7f * u; tp.typeface = bold
+            val lbl = "${cargo.vagas} VAGAS"
+            val lw = tp.measureText(lbl) + 2f * u
+            rect(c, w / 2 - lw / 2, ly - 1.2f * u, w / 2 + lw / 2, ly + 1.2f * u, OURO, 0.6f * u)
+            texto(c, lbl, w / 2, ly + 0.6f * u, 1.7f * u, BG, bold, Paint.Align.CENTER)
         }
     }
 
-    private fun Int.clarear(): Int {
-        val rr = (Color.red(this) + 255) / 2
-        val g = (Color.green(this) + 255) / 2
-        val bb = (Color.blue(this) + 255) / 2
-        return Color.rgb(rr, g, bb)
-    }
+    private fun clarear(cor: Int): Int =
+        Color.rgb((Color.red(cor) + 255) / 2, (Color.green(cor) + 255) / 2, (Color.blue(cor) + 255) / 2)
 }

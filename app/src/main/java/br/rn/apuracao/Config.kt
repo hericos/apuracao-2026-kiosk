@@ -34,8 +34,8 @@ object Config {
 
     fun nome(t: Tela): String = when {
         !t.cargo.proporcional -> t.cargo.titulo
-        t.pagina == 0 -> "${t.cargo.titulo} — 1º ao 30º"
-        else -> "${t.cargo.titulo} — 31º ao 60º"
+        t.pagina == 0 -> "${t.cargo.titulo} — 1º ao 15º"
+        else -> "${t.cargo.titulo} — 16º ao 30º"
     }
 
     private fun chave(t: Tela) = "${t.cargo.name}:${t.pagina}"
