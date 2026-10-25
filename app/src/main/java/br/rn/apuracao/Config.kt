@@ -20,6 +20,7 @@ object Config {
 
     val TELAS_PADRAO = listOf(
         Tela(Cargo.PRESIDENTE, 0),
+        Tela(Cargo.MAPA, 0),
         Tela(Cargo.GOVERNADOR, 0),
         Tela(Cargo.SENADOR, 0),
         Tela(Cargo.DEP_FEDERAL, 0),
@@ -54,8 +55,14 @@ object Config {
     fun carregar(ctx: Context): Ajustes {
         val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val salvas = p.getString(K_ORDEM, null)?.split(",")?.mapNotNull(::deChave).orEmpty()
-        // telas não presentes na ordem salva entram no fim, na ordem padrão
-        val ordem = (salvas + TELAS_PADRAO).distinct()
+        // telas novas (ausentes da ordem salva) entram logo após a tela que as precede no padrão
+        val ordem = salvas.distinct().toMutableList()
+        TELAS_PADRAO.forEachIndexed { i, t ->
+            if (t !in ordem) {
+                val anterior = TELAS_PADRAO.getOrNull(i - 1)
+                ordem.add(if (anterior == null) 0 else ordem.indexOf(anterior) + 1, t)
+            }
+        }
         val ocultas = p.getStringSet(K_OCULTAS, emptySet()).orEmpty()
         val itens = ordem.map { Item(it, chave(it) !in ocultas) }
         return Ajustes(

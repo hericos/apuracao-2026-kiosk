@@ -18,6 +18,7 @@ enum class Cargo(
     val textoVagas: String,
     val proporcional: Boolean,
     val cor: Int,
+    val mapa: Boolean = false,   // tela do mapa: usa o arquivo de abrangências (% apurado por UF)
 ) {
     PRESIDENTE(
         "Presidente", "Brasil",
@@ -45,6 +46,12 @@ enum class Cargo(
         "Deputado Estadual", "Rio Grande do Norte",
         "$BASE/6259/dados/rn/rn-c0007-e006259-u.json", null,
         24, "24 vagas", true, 0xFFD6336C.toInt()
+    ),
+    MAPA(
+        "Apuração por estado", "Brasil e exterior · eleição presidencial",
+        "$BASE/6257/dados/br/br-e006257-ab.json",
+        "$BASE/6258/dados/br/br-e006258-ab.json",
+        0, "27 UFs", false, 0xFF1E9E5A.toInt(), mapa = true
     );
 
     fun temTurno(turno: Int) = turno == 1 || url2 != null
@@ -63,6 +70,18 @@ data class Candidato(
     val naVaga: Boolean = false,   // dentro das vagas proporcionais (oficial ou projeção)
 )
 
+/** Andamento da totalização em uma UF (ou "zz" = exterior). */
+data class UfStatus(
+    val uf: String,
+    val pct: Double,
+    val secoesTotalizadas: Long,
+    val secoesTotal: Long,
+    val eleitores: Long,
+    val pctComparecimento: Double,
+    val municipiosComVotos: Long,
+    val municipiosTotal: Long,
+)
+
 data class Resultado(
     val pctApurado: Double,
     val secoesTotalizadas: Long,
@@ -77,6 +96,9 @@ data class Resultado(
     val qe: Long = 0,
     val vagasPorAgr: List<Pair<String, Int>> = emptyList(),
     val vagasOficiais: Boolean = false,
+    // só para a tela do mapa
+    val ufs: List<UfStatus> = emptyList(),
+    val comparecimento: Long = 0, val pctComparecimento: Double = 0.0,
 ) {
     /** Aplica a distribuição de vagas (oficial do TSE ou projeção) aos candidatos. */
     fun comVagas(cargo: Cargo, agrs: Map<String, Agremiacao>, qeTse: Long): Resultado {
@@ -161,8 +183,40 @@ object Parser {
     private fun acharQe(o: JSONObject): Long =
         o.optJSONArray("carg")?.optJSONObject(0)?.num("qe") ?: o.num("qe")
 
+    /** Arquivo de abrangências (`-ab.json`): andamento por UF, sem votos de candidatos. */
+    private fun parseAbrangencias(o: JSONObject): Resultado {
+        val arr = o.optJSONArray("abr") ?: JSONArray()
+        val itens = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+        val br = itens.firstOrNull { it.optString("tpabr") == "br" } ?: JSONObject()
+        val sBr = br.optJSONObject("s") ?: JSONObject()
+        val eBr = br.optJSONObject("e") ?: JSONObject()
+        val ufs = itens.filter { it.optString("tpabr") == "uf" }.map { a ->
+            val s = a.optJSONObject("s") ?: JSONObject()
+            val e = a.optJSONObject("e") ?: JSONObject()
+            val comVotos = a.num("munpt") + a.num("munf")
+            UfStatus(
+                uf = a.optString("cdabr").lowercase(),
+                pct = s.pct("pst"),
+                secoesTotalizadas = s.num("st"), secoesTotal = s.num("ts"),
+                eleitores = e.num("te"), pctComparecimento = e.pct("pc"),
+                municipiosComVotos = comVotos, municipiosTotal = comVotos + a.num("munnr"),
+            )
+        }
+        return Resultado(
+            pctApurado = sBr.pct("pst"),
+            secoesTotalizadas = sBr.num("st"), secoesTotal = sBr.num("ts"),
+            atualizado = listOf(o.optString("dg"), o.optString("hg")).filter { it.isNotBlank() }.joinToString(" "),
+            validos = 0, pctValidos = 0.0, brancos = 0, pctBrancos = 0.0, nulos = 0, pctNulos = 0.0,
+            abstencao = eBr.num("a"), pctAbstencao = eBr.pct("pa"),
+            candidatos = emptyList(),
+            ufs = ufs,
+            comparecimento = eBr.num("c"), pctComparecimento = eBr.pct("pc"),
+        )
+    }
+
     fun parse(json: String, cargo: Cargo): Resultado {
         val o = JSONObject(json)
+        if (cargo.mapa) return parseAbrangencias(o)
         val agrs = mutableMapOf<String, Agremiacao>()
         val cands = mutableListOf<Candidato>().also { coletar(o, "", "", it, agrs) }
             .sortedWith(compareByDescending<Candidato> { it.votos }.thenBy(ordemAlfabetica) { it.nome })

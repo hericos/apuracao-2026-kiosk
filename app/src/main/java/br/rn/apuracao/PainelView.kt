@@ -36,7 +36,8 @@ class PainelView(ctx: Context) : View(ctx) {
     var demo = false
     var turno = 1
 
-    private var insetTopo = 0   // recorte da câmera/notch, quando houver
+    private var insetTopo = 0
+    private val mapa by lazy { MapaBrasil(context) }   // recorte da câmera/notch, quando houver
 
     private val br = Locale("pt", "BR")
     private val fmtInt = NumberFormat.getIntegerInstance(br)
@@ -77,9 +78,17 @@ class PainelView(ctx: Context) : View(ctx) {
     private fun texto(
         c: Canvas, s: String, x: Float, y: Float, size: Float, color: Int,
         tf: Typeface = Typeface.SANS_SERIF, align: Paint.Align = Paint.Align.LEFT, maxW: Float = 0f,
+        halo: Int? = null,
     ) {
-        tp.textSize = size; tp.color = color; tp.typeface = tf; tp.textAlign = align
+        tp.textSize = size; tp.typeface = tf; tp.textAlign = align
         val t = if (maxW > 0) TextUtils.ellipsize(s, tp, maxW, TextUtils.TruncateAt.END).toString() else s
+        if (halo != null) {
+            tp.style = Paint.Style.STROKE; tp.strokeWidth = size * 0.22f; tp.strokeJoin = Paint.Join.ROUND
+            tp.color = halo
+            c.drawText(t, x, y, tp)
+            tp.style = Paint.Style.FILL
+        }
+        tp.color = color
         c.drawText(t, x, y, tp)
     }
 
@@ -129,7 +138,11 @@ class PainelView(ctx: Context) : View(ctx) {
         val seloW = tp.measureText(vagasLabel) + 4f * u
         rect(c, w - pad - seloW, y + 0.8f * u, w - pad, y + 6.6f * u, cargo.cor, 1.2f * u)
         texto(c, vagasLabel, w - pad - seloW / 2, y + 5f * u, 3.6f * u, Color.WHITE, condensedB, Paint.Align.CENTER)
-        val sub = if (cargo == Cargo.PRESIDENTE) "em disputa" else "em disputa no RN"
+        val sub = when {
+            cargo.mapa -> "+ exterior"
+            cargo == Cargo.PRESIDENTE -> "em disputa"
+            else -> "em disputa no RN"
+        }
         texto(c, sub, w - pad - seloW / 2, y + 9.4f * u, 2.3f * u, TXT2, condensed, Paint.Align.CENTER)
         y += 13.5f * u
 
@@ -152,6 +165,8 @@ class PainelView(ctx: Context) : View(ctx) {
 
         // ---------- Regra do cargo / vagas por partido (2 linhas em todas as telas) ----------
         val (linha1, linha2) = when {
+            cargo.mapa -> "Cor de cada estado = % de seções totalizadas: branco (sem apuração) até verde (100%)." to
+                resumoMapa(res)
             turno == 2 -> "2º turno: eleito quem tiver a maioria dos votos válidos." to ""
             else -> when (cargo) {
             Cargo.PRESIDENTE, Cargo.GOVERNADOR ->
@@ -176,7 +191,9 @@ class PainelView(ctx: Context) : View(ctx) {
         val corpoTop = y
         val corpoBot = totaisTop - 1.5f * u
 
-        if (res == null || res.candidatos.isEmpty()) {
+        if (cargo.mapa && res != null && res.ufs.isNotEmpty()) {
+            desenharMapa(c, res, u, pad, w, corpoTop, corpoBot)
+        } else if (res == null || res.candidatos.isEmpty()) {
             val (l1, l2) = when (estado) {
                 Estado.Aguardando -> "Aguardando divulgação do TSE" to "Os resultados começam a ser publicados após as 17h (horário de Brasília)."
                 is Estado.Erro -> "Sem conexão com o TSE" to "Tentando novamente a cada 5 segundos…"
@@ -190,19 +207,51 @@ class PainelView(ctx: Context) : View(ctx) {
             else desenharLista(c, res, cargo, u, pad, w, corpoTop, corpoBot)
         }
 
-        desenharTotais(c, res, u, pad, w, totaisTop, totaisTop + totaisH)
+        desenharTotais(c, if (cargo.mapa) blocosMapa(res) else blocosVotos(res), u, pad, w, totaisTop, totaisTop + totaisH)
         desenharIndicadores(c, cargo, u, pad, w, bottom - indicH, bottom)
     }
 
     /** 4 blocos grandes: válidos, brancos, nulos e abstenção. */
-    private fun desenharTotais(c: Canvas, res: Resultado?, u: Float, pad: Float, w: Float, top: Float, bot: Float) {
-        data class Bloco(val rotulo: String, val pct: Double?, val votos: Long?, val cor: Int)
-        val blocos = listOf(
-            Bloco("VÁLIDOS", res?.pctValidos, res?.validos, VERDE),
-            Bloco("BRANCOS", res?.pctBrancos, res?.brancos, CINZA),
-            Bloco("NULOS", res?.pctNulos, res?.nulos, VERMELHO),
-            Bloco("ABSTENÇÃO", res?.pctAbstencao, res?.abstencao, AZUL),
+    private data class Bloco(val rotulo: String, val valor: String, val sub: String, val cor: Int)
+
+    private fun blocosVotos(res: Resultado?): List<Bloco> {
+        fun b(r: String, p: Double?, v: Long?, cor: Int) =
+            Bloco(r, p?.let { pct(it) } ?: "—", v?.let { "${int(it)} votos" } ?: "", cor)
+        return listOf(
+            b("VÁLIDOS", res?.pctValidos, res?.validos, VERDE),
+            b("BRANCOS", res?.pctBrancos, res?.brancos, CINZA),
+            b("NULOS", res?.pctNulos, res?.nulos, VERMELHO),
+            b("ABSTENÇÃO", res?.pctAbstencao, res?.abstencao, AZUL),
         )
+    }
+
+    private fun blocosMapa(res: Resultado?): List<Bloco> {
+        val estados = res?.ufs.orEmpty().filter { it.uf != "zz" }
+        val concluidos = estados.count { it.pct >= 100.0 }
+        val munCom = estados.sumOf { it.municipiosComVotos }
+        val munTot = estados.sumOf { it.municipiosTotal }
+        return listOf(
+            Bloco("COMPARECIMENTO", res?.let { pct(it.pctComparecimento) } ?: "—",
+                res?.let { "${int(it.comparecimento)} eleitores" } ?: "", VERDE),
+            Bloco("ABSTENÇÃO", res?.let { pct(it.pctAbstencao) } ?: "—",
+                res?.let { "${int(it.abstencao)} eleitores" } ?: "", AZUL),
+            Bloco("ESTADOS 100%", if (res != null) "$concluidos / ${estados.size}" else "—",
+                "com apuração concluída", OURO),
+            Bloco("MUNICÍPIOS COM VOTOS", if (munTot > 0) pct(munCom * 100.0 / munTot) else "—",
+                if (munTot > 0) "${int(munCom)} de ${int(munTot)}" else "", CINZA),
+        )
+    }
+
+    private fun resumoMapa(res: Resultado?): String {
+        val estados = res?.ufs.orEmpty().filter { it.uf != "zz" }
+        if (estados.isEmpty()) return ""
+        val iniciados = estados.count { it.pct > 0 }
+        val concluidos = estados.count { it.pct >= 100.0 }
+        val ext = res?.ufs?.firstOrNull { it.uf == "zz" }?.let { " · Exterior ${pct(it.pct)}" } ?: ""
+        return "Com apuração: $iniciados de ${estados.size} · Concluídos: $concluidos$ext"
+    }
+
+    private fun desenharTotais(c: Canvas, blocos: List<Bloco>, u: Float, pad: Float, w: Float, top: Float, bot: Float) {
         val gap = 1.2f * u
         val bw = (w - 2 * pad - gap * (blocos.size - 1)) / blocos.size
         val bh = bot - top
@@ -211,11 +260,11 @@ class PainelView(ctx: Context) : View(ctx) {
             rect(c, l, top, l + bw, bot, CARD, 1.5f * u)
             rect(c, l, top, l + bw, top + 0.6f * u, b.cor, 0.3f * u)
             val cx = l + bw / 2
-            texto(c, b.rotulo, cx, top + bh * 0.27f, 2.3f * u, TXT2, bold, Paint.Align.CENTER, bw - 2 * u)
-            texto(c, b.pct?.let { pct(it) } ?: "—", cx, top + bh * 0.66f, 5.2f * u, b.cor, condensedB,
-                Paint.Align.CENTER, bw - 1.5f * u)
-            texto(c, b.votos?.let { "${int(it)} votos" } ?: "", cx, top + bh * 0.88f, 2.3f * u, TXT, condensed,
-                Paint.Align.CENTER, bw - 1.5f * u)
+            tp.typeface = bold; tp.textSize = 2.3f * u
+            val tamRot = minOf(2.3f * u, 2.2f * u * (bw - 2 * u) / tp.measureText(b.rotulo).coerceAtLeast(1f))
+            texto(c, b.rotulo, cx, top + bh * 0.27f, tamRot, TXT2, bold, Paint.Align.CENTER, bw - 2 * u)
+            texto(c, b.valor, cx, top + bh * 0.66f, 5.2f * u, b.cor, condensedB, Paint.Align.CENTER, bw - 1.5f * u)
+            texto(c, b.sub, cx, top + bh * 0.88f, 2.1f * u, TXT, condensed, Paint.Align.CENTER, bw - 1.5f * u)
         }
     }
 
@@ -380,6 +429,139 @@ class PainelView(ctx: Context) : View(ctx) {
                 texto(c, txt, w - pad - 3f * u - cw / 2, t + 6.6f * u, 3f * u, BG, bold, Paint.Align.CENTER)
             }
         }
+    }
+
+    /** Branco sem apuração → verde com 100%; qualquer seção apurada já dá um leve tom. */
+    private fun corApuracao(p: Double): Int {
+        if (p <= 0.0) return Color.WHITE
+        val t = (0.08 + 0.92 * (p / 100.0).coerceIn(0.0, 1.0)).toFloat()
+        val fim = Color.parseColor("#12844A")
+        return Color.rgb(
+            (255 + (Color.red(fim) - 255) * t).toInt(),
+            (255 + (Color.green(fim) - 255) * t).toInt(),
+            (255 + (Color.blue(fim) - 255) * t).toInt(),
+        )
+    }
+
+    private fun textoSobre(p: Double) = if (p >= 45.0) Color.WHITE else Color.parseColor("#0B1320")
+
+    private fun fmtPct1(v: Double): String = when {
+        v <= 0.0 -> "0%"
+        v >= 100.0 -> "100%"
+        v < 10.0 -> String.format(br, "%.2f%%", v)
+        else -> String.format(br, "%.1f%%", v)
+    }
+
+    /** Tela do mapa: Brasil colorido pelo andamento, destaques à direita e tabela de todas as UFs. */
+    private fun desenharMapa(c: Canvas, res: Resultado, u: Float, pad: Float, w: Float, top: Float, bot: Float) {
+        val porUf = res.ufs.associateBy { it.uf }
+        val h = bot - top
+        val altoTopo = h * 0.56f
+
+        // ---- mapa ----
+        val mapaW = min(altoTopo * mapa.proporcao, (w - 2 * pad) * 0.6f)
+        val caixa = RectF(pad, top, pad + mapaW, top + altoTopo)
+        val bordas = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; color = BG; strokeWidth = 0.25f * u; strokeJoin = Paint.Join.ROUND
+        }
+        for ((uf, path) in mapa.caminhos(caixa)) {
+            fill.color = corApuracao(porUf[uf]?.pct ?: 0.0)
+            c.drawPath(path, fill)
+            c.drawPath(path, bordas)
+        }
+        for (uf in mapa.ufs) {
+            val p = porUf[uf]?.pct ?: 0.0
+            val pt = mapa.rotulo(uf, caixa)
+            val cor = textoSobre(p)
+            val halo = if (cor == Color.WHITE) Color.parseColor("#0B4D2B") else Color.WHITE
+            if (uf in MapaBrasil.PEQUENAS) {
+                texto(c, uf.uppercase(), pt.x, pt.y + 0.6f * u, 1.7f * u, cor, bold, Paint.Align.CENTER, halo = halo)
+            } else {
+                texto(c, uf.uppercase(), pt.x, pt.y, 2.2f * u, cor, bold, Paint.Align.CENTER, halo = halo)
+                texto(c, fmtPct1(p), pt.x, pt.y + 2.3f * u, 1.8f * u, cor, condensedB, Paint.Align.CENTER, halo = halo)
+            }
+        }
+
+        // ---- painel à direita: legenda e destaques ----
+        val x0 = caixa.right + 2.5f * u
+        val x1 = w - pad
+        var y = top + 1f * u
+        texto(c, "LEGENDA", x0, y + 2f * u, 2f * u, TXT2, bold)
+        y += 3f * u
+        val passos = 20
+        val lw = (x1 - x0) / passos
+        for (i in 0 until passos) {
+            rect(c, x0 + i * lw, y, x0 + (i + 1) * lw + 1, y + 2.4f * u, corApuracao(i * 100.0 / (passos - 1)))
+        }
+        fill.color = LINHA; fill.style = Paint.Style.STROKE; fill.strokeWidth = 0.15f * u
+        c.drawRect(x0, y, x1, y + 2.4f * u, fill)
+        fill.style = Paint.Style.FILL
+        texto(c, "0%", x0, y + 4.8f * u, 1.8f * u, TXT2, condensed)
+        texto(c, "50%", (x0 + x1) / 2, y + 4.8f * u, 1.8f * u, TXT2, condensed, Paint.Align.CENTER)
+        texto(c, "100%", x1, y + 4.8f * u, 1.8f * u, TXT2, condensed, Paint.Align.RIGHT)
+        y += 8f * u
+
+        val estados = res.ufs.filter { it.uf != "zz" }
+        texto(c, "MAIS ADIANTADOS", x0, y, 2f * u, TXT2, bold)
+        y += 1.2f * u
+        estados.sortedByDescending { it.pct }.take(4).forEach { s -> y = linhaRanking(c, s, x0, x1, y, u) }
+        y += 2.2f * u
+        texto(c, "MAIS ATRASADOS", x0, y, 2f * u, TXT2, bold)
+        y += 1.2f * u
+        estados.sortedBy { it.pct }.take(4).forEach { s -> y = linhaRanking(c, s, x0, x1, y, u) }
+        y += 2.2f * u
+        porUf["zz"]?.let { ext ->
+            texto(c, "EXTERIOR", x0, y, 2f * u, TXT2, bold)
+            linhaRanking(c, ext, x0, x1, y + 1.2f * u, u)
+        }
+
+        // ---- tabela de todas as UFs (2 colunas, ordem alfabética) ----
+        val tTop = top + altoTopo + 2f * u
+        val lista = res.ufs.sortedBy { MapaBrasil.NOMES[it.uf] ?: it.uf }
+        val porColuna = (lista.size + 1) / 2
+        val gap = 1.5f * u
+        val colW = (w - 2 * pad - gap) / 2
+        val rowH = (bot - tTop) / porColuna
+        lista.forEachIndexed { i, s ->
+            val col = i / porColuna
+            val lin = i % porColuna
+            val l = pad + col * (colW + gap)
+            val r = l + colW
+            val t = tTop + lin * rowH
+            val b = t + rowH - 0.35f * u
+            val my = (t + b) / 2
+            rect(c, l, t, r, b, if (lin % 2 == 0) CARD else CARD2, 0.6f * u)
+            // selo da UF na cor do mapa
+            rect(c, l + 0.5f * u, t + 0.35f * u, l + 5.3f * u, b - 0.35f * u, corApuracao(s.pct), 0.5f * u)
+            texto(c, if (s.uf == "zz") "EXT" else s.uf.uppercase(), l + 2.9f * u, my + 0.75f * u, 1.9f * u,
+                textoSobre(s.pct), bold, Paint.Align.CENTER)
+            texto(c, MapaBrasil.NOMES[s.uf] ?: s.uf, l + 6.3f * u, my + 0.75f * u, 2f * u, TXT, condensed,
+                maxW = colW * 0.42f)
+            val bl = l + colW * 0.52f
+            val br2 = l + colW * 0.74f
+            rect(c, bl, my - 0.5f * u, br2, my + 0.5f * u, LINHA, 0.5f * u)
+            if (s.pct > 0) {
+                rect(c, bl, my - 0.5f * u, bl + (br2 - bl) * (s.pct / 100).toFloat().coerceIn(0f, 1f),
+                    my + 0.5f * u, corApuracao(maxOf(s.pct, 30.0)), 0.5f * u)
+            }
+            texto(c, pct(s.pct), r - 0.8f * u, my + 0.75f * u, 2.1f * u, if (s.pct >= 100) VERDE else TXT,
+                condensedB, Paint.Align.RIGHT)
+        }
+    }
+
+    private fun linhaRanking(c: Canvas, s: UfStatus, x0: Float, x1: Float, y: Float, u: Float): Float {
+        val b = y + 3f * u
+        val my = (y + b) / 2
+        texto(c, if (s.uf == "zz") "EXT" else s.uf.uppercase(), x0, my + 0.8f * u, 2.2f * u, TXT, bold)
+        val bl = x0 + 6f * u
+        val br2 = x1 - 11f * u
+        rect(c, bl, my - 0.6f * u, br2, my + 0.6f * u, LINHA, 0.6f * u)
+        if (s.pct > 0) {
+            rect(c, bl, my - 0.6f * u, bl + (br2 - bl) * (s.pct / 100).toFloat().coerceIn(0f, 1f),
+                my + 0.6f * u, corApuracao(maxOf(s.pct, 30.0)), 0.6f * u)
+        }
+        texto(c, pct(s.pct), x1, my + 0.8f * u, 2.2f * u, TXT, condensedB, Paint.Align.RIGHT)
+        return b + 0.4f * u
     }
 
     private fun clarear(cor: Int): Int =

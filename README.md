@@ -22,6 +22,13 @@ publicada; até lá, projeta pelo quociente partidário (10% do QE), sobras com 
 todos (decisão do STF de 2024) — ver `Projecao.kt` e `ProjecaoTest.kt`. Eleitos confirmados pelo TSE aparecem
 em verde com ✔.
 
+## Mapa da apuração por estado
+
+Tela "Apuração por estado": mapa do Brasil (malha do IBGE em `assets/ufs.json`) com cada UF colorida pelo % de seções
+totalizadas — branco sem apuração, verde em 100% —, legenda, estados mais adiantados/atrasados, exterior, tabela das 27 UFs
++ exterior e totais de comparecimento, abstenção, estados concluídos e municípios com votos. Fonte: arquivo de
+abrangências do TSE (`br-e006257-ab.json` / `br-e006258-ab.json`), 1 requisição a cada 5 s.
+
 ## 2º turno
 
 Nas configurações (toque longo) há a escolha do **turno**; a partir de 25/10/2026 o padrão é o 2º. No 2º turno só existem
@@ -60,6 +67,7 @@ Código principal em `app/src/main/java/br/rn/apuracao/`:
 - `Dados.kt` — cargos, URLs, vagas e parser do JSON do TSE
 - `Coletor.kt` — consultas periódicas e modo demonstração
 - `Projecao.kt` — distribuição das vagas proporcionais (oficial do TSE ou projeção)
+- `MapaBrasil.kt` — contornos das UFs e projeção do mapa
 - `PainelView.kt` — renderização da tela (Canvas, escala para qualquer tamanho)
 - `MainActivity.kt` — rodízio de telas e modo kiosk
 - `Config.kt` / `ConfigActivity.kt` — configurações (tempo, ordem, telas ocultas, dados de teste)

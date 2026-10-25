@@ -112,10 +112,36 @@ object Demo {
     )
     private val partidos = listOf("PT", "PL", "UNIÃO", "MDB", "PSD", "PP", "PSDB", "PSB", "REPUBLICANOS", "PDT", "PSOL", "NOVO")
 
+    private val UFS = listOf(
+        "ac", "al", "am", "ap", "ba", "ce", "df", "es", "go", "ma", "mg", "ms", "mt", "pa", "pb",
+        "pe", "pi", "pr", "rj", "rn", "ro", "rr", "rs", "sc", "se", "sp", "to", "zz"
+    )
+
+    /** Andamento fictício por UF: cada estado avança num ritmo diferente. */
+    private fun gerarMapa(tick: Int): Resultado {
+        val ufs = UFS.mapIndexed { i, uf ->
+            val ritmo = 0.6 + Random(i * 131).nextDouble() * 1.4
+            val inicio = Random(i * 17).nextInt(0, 6)
+            val pct = ((tick - inicio).coerceAtLeast(0) * 2.2 * ritmo).coerceAtMost(100.0)
+            val ts = 2_000L + Random(i).nextLong(0, 40_000)
+            val mun = if (uf == "zz") 0L else 15L + Random(i * 3).nextLong(0, 800)
+            UfStatus(uf, pct, (ts * pct / 100).toLong(), ts, ts * 330, 78.0 + i % 7,
+                (mun * minOf(1.0, pct / 40)).toLong(), mun)
+        }
+        val ts = ufs.sumOf { it.secoesTotal }; val st = ufs.sumOf { it.secoesTotalizadas }
+        val pct = if (ts > 0) st * 100.0 / ts else 0.0
+        return Resultado(
+            pct, st, ts, "DEMONSTRAÇÃO", 0, 0.0, 0, 0.0, 0, 0.0,
+            (156_000_000L * 0.2 * pct / 100).toLong(), 20.3, emptyList(),
+            ufs = ufs, comparecimento = (156_000_000L * 0.8 * pct / 100).toLong(), pctComparecimento = 79.7,
+        )
+    }
+
     fun gerar(cargo: Cargo, tick: Int, turno: Int = 1): Resultado {
+        if (cargo.mapa) return gerarMapa(tick)
         val n = if (turno == 2) 2 else when (cargo) {
             Cargo.PRESIDENTE -> 9; Cargo.GOVERNADOR -> 6; Cargo.SENADOR -> 8
-            Cargo.DEP_FEDERAL -> 95; Cargo.DEP_ESTADUAL -> 160
+            Cargo.DEP_FEDERAL -> 95; Cargo.DEP_ESTADUAL -> 160; Cargo.MAPA -> 0
         }
         val rnd = Random(cargo.ordinal * 7919)
         val pesos = DoubleArray(n) { i -> (1.0 / (i + 1.3)) * (0.6 + rnd.nextDouble()) }
