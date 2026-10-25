@@ -20,7 +20,6 @@ object Config {
 
     val TELAS_PADRAO = listOf(
         Tela(Cargo.PRESIDENTE, 0),
-        Tela(Cargo.MAPA, 0),
         Tela(Cargo.GOVERNADOR, 0),
         Tela(Cargo.SENADOR, 0),
         Tela(Cargo.DEP_FEDERAL, 0),

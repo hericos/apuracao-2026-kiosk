@@ -12,50 +12,37 @@ private const val BASE = "https://resultados.tse.jus.br/oficial/ele2026"
 enum class Cargo(
     val titulo: String,
     val abrangencia: String,
-    private val url1: String,
-    private val url2: String?,
+    private val uf: String,        // pasta e prefixo dos arquivos: "br" ou "rn"
+    private val codigo: String,    // código do cargo no TSE (0001 = Presidente, 0003 = Governador…)
+    private val ele1: String,
+    private val ele2: String?,
     val vagas: Int,
     val textoVagas: String,
     val proporcional: Boolean,
     val cor: Int,
-    val mapa: Boolean = false,   // tela do mapa: usa o arquivo de abrangências (% apurado por UF)
+    /** Tela com mapa: Presidente por UF, Governador por município do RN. */
+    val temMapa: Boolean = false,
 ) {
-    PRESIDENTE(
-        "Presidente", "Brasil",
-        "$BASE/6257/dados/br/br-c0001-e006257-u.json",
-        "$BASE/6258/dados/br/br-c0001-e006258-u.json",
-        1, "1 vaga", false, 0xFF2D7FF9.toInt()
-    ),
-    GOVERNADOR(
-        "Governador", "Rio Grande do Norte",
-        "$BASE/6259/dados/rn/rn-c0003-e006259-u.json",
-        "$BASE/6260/dados/rn/rn-c0003-e006260-u.json",
-        1, "1 vaga", false, 0xFF1E9E5A.toInt()
-    ),
-    SENADOR(
-        "Senador", "Rio Grande do Norte",
-        "$BASE/6259/dados/rn/rn-c0005-e006259-u.json", null,
-        2, "2 vagas", false, 0xFF8E44AD.toInt()
-    ),
-    DEP_FEDERAL(
-        "Deputado Federal", "Rio Grande do Norte",
-        "$BASE/6259/dados/rn/rn-c0006-e006259-u.json", null,
-        8, "8 vagas", true, 0xFFE67E22.toInt()
-    ),
-    DEP_ESTADUAL(
-        "Deputado Estadual", "Rio Grande do Norte",
-        "$BASE/6259/dados/rn/rn-c0007-e006259-u.json", null,
-        24, "24 vagas", true, 0xFFD6336C.toInt()
-    ),
-    MAPA(
-        "Apuração por estado", "Brasil e exterior · eleição presidencial",
-        "$BASE/6257/dados/br/br-e006257-ab.json",
-        "$BASE/6258/dados/br/br-e006258-ab.json",
-        0, "27 UFs", false, 0xFF1E9E5A.toInt(), mapa = true
-    );
+    PRESIDENTE("Presidente", "Brasil", "br", "0001", "6257", "6258", 1, "1 vaga", false, 0xFF2D7FF9.toInt(), true),
+    GOVERNADOR("Governador", "Rio Grande do Norte", "rn", "0003", "6259", "6260", 1, "1 vaga", false, 0xFF1E9E5A.toInt(), true),
+    SENADOR("Senador", "Rio Grande do Norte", "rn", "0005", "6259", null, 2, "2 vagas", false, 0xFF8E44AD.toInt()),
+    DEP_FEDERAL("Deputado Federal", "Rio Grande do Norte", "rn", "0006", "6259", null, 8, "8 vagas", true, 0xFFE67E22.toInt()),
+    DEP_ESTADUAL("Deputado Estadual", "Rio Grande do Norte", "rn", "0007", "6259", null, 24, "24 vagas", true, 0xFFD6336C.toInt());
 
-    fun temTurno(turno: Int) = turno == 1 || url2 != null
-    fun url(turno: Int): String = if (turno == 2) url2 ?: url1 else url1
+    fun temTurno(turno: Int) = turno == 1 || ele2 != null
+    private fun ele(turno: Int) = if (turno == 2) ele2 ?: ele1 else ele1
+    private fun e6(turno: Int) = "e" + ele(turno).padStart(6, '0')
+
+    /** Resultado do cargo na abrangência inteira (Brasil ou RN). */
+    fun url(turno: Int) = "$BASE/${ele(turno)}/dados/$uf/$uf-c$codigo-${e6(turno)}-u.json"
+
+    /** Andamento da totalização por região: UFs (Presidente) ou municípios (Governador). */
+    fun urlAndamento(turno: Int) = "$BASE/${ele(turno)}/dados/$uf/$uf-${e6(turno)}-ab.json"
+
+    /** Resultado numa região: UF ("sp", "zz" = exterior) ou município do RN (código TSE, ex.: "17612"). */
+    fun urlRegiao(turno: Int, regiao: String) =
+        if (uf == "br") "$BASE/${ele(turno)}/dados/$regiao/$regiao-c$codigo-${e6(turno)}-u.json"
+        else "$BASE/${ele(turno)}/dados/$uf/$uf$regiao-c$codigo-${e6(turno)}-u.json"
 }
 
 data class Candidato(
@@ -70,16 +57,13 @@ data class Candidato(
     val naVaga: Boolean = false,   // dentro das vagas proporcionais (oficial ou projeção)
 )
 
-/** Andamento da totalização em uma UF (ou "zz" = exterior). */
-data class UfStatus(
-    val uf: String,
+/** Andamento da totalização numa região: UF ("zz" = exterior) ou município (código TSE). */
+data class Andamento(
+    val codigo: String,
     val pct: Double,
     val secoesTotalizadas: Long,
     val secoesTotal: Long,
     val eleitores: Long,
-    val pctComparecimento: Double,
-    val municipiosComVotos: Long,
-    val municipiosTotal: Long,
 )
 
 data class Resultado(
@@ -96,9 +80,6 @@ data class Resultado(
     val qe: Long = 0,
     val vagasPorAgr: List<Pair<String, Int>> = emptyList(),
     val vagasOficiais: Boolean = false,
-    // só para a tela do mapa
-    val ufs: List<UfStatus> = emptyList(),
-    val comparecimento: Long = 0, val pctComparecimento: Double = 0.0,
 ) {
     /** Aplica a distribuição de vagas (oficial do TSE ou projeção) aos candidatos. */
     fun comVagas(cargo: Cargo, agrs: Map<String, Agremiacao>, qeTse: Long): Resultado {
@@ -183,40 +164,23 @@ object Parser {
     private fun acharQe(o: JSONObject): Long =
         o.optJSONArray("carg")?.optJSONObject(0)?.num("qe") ?: o.num("qe")
 
-    /** Arquivo de abrangências (`-ab.json`): andamento por UF, sem votos de candidatos. */
-    private fun parseAbrangencias(o: JSONObject): Resultado {
-        val arr = o.optJSONArray("abr") ?: JSONArray()
+    /**
+     * Arquivo de abrangências (`-ab.json`): andamento de cada UF (arquivo do Brasil) ou de cada
+     * município (arquivo de uma UF).
+     */
+    fun parseAndamento(json: String): List<Andamento> {
+        val arr = JSONObject(json).optJSONArray("abr") ?: return emptyList()
         val itens = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
-        val br = itens.firstOrNull { it.optString("tpabr") == "br" } ?: JSONObject()
-        val sBr = br.optJSONObject("s") ?: JSONObject()
-        val eBr = br.optJSONObject("e") ?: JSONObject()
-        val ufs = itens.filter { it.optString("tpabr") == "uf" }.map { a ->
+        val tipo = if (itens.any { it.optString("tpabr") == "mun" }) "mun" else "uf"
+        return itens.filter { it.optString("tpabr") == tipo }.map { a ->
             val s = a.optJSONObject("s") ?: JSONObject()
             val e = a.optJSONObject("e") ?: JSONObject()
-            val comVotos = a.num("munpt") + a.num("munf")
-            UfStatus(
-                uf = a.optString("cdabr").lowercase(),
-                pct = s.pct("pst"),
-                secoesTotalizadas = s.num("st"), secoesTotal = s.num("ts"),
-                eleitores = e.num("te"), pctComparecimento = e.pct("pc"),
-                municipiosComVotos = comVotos, municipiosTotal = comVotos + a.num("munnr"),
-            )
+            Andamento(a.optString("cdabr").lowercase(), s.pct("pst"), s.num("st"), s.num("ts"), e.num("te"))
         }
-        return Resultado(
-            pctApurado = sBr.pct("pst"),
-            secoesTotalizadas = sBr.num("st"), secoesTotal = sBr.num("ts"),
-            atualizado = listOf(o.optString("dg"), o.optString("hg")).filter { it.isNotBlank() }.joinToString(" "),
-            validos = 0, pctValidos = 0.0, brancos = 0, pctBrancos = 0.0, nulos = 0, pctNulos = 0.0,
-            abstencao = eBr.num("a"), pctAbstencao = eBr.pct("pa"),
-            candidatos = emptyList(),
-            ufs = ufs,
-            comparecimento = eBr.num("c"), pctComparecimento = eBr.pct("pc"),
-        )
     }
 
     fun parse(json: String, cargo: Cargo): Resultado {
         val o = JSONObject(json)
-        if (cargo.mapa) return parseAbrangencias(o)
         val agrs = mutableMapOf<String, Agremiacao>()
         val cands = mutableListOf<Candidato>().also { coletar(o, "", "", it, agrs) }
             .sortedWith(compareByDescending<Candidato> { it.votos }.thenBy(ordemAlfabetica) { it.nome })

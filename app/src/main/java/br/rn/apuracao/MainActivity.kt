@@ -9,7 +9,7 @@ import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
 
-class MainActivity : Activity() {
+class MainActivity : Activity(), PainelView.Acoes {
 
     companion object {
         const val CONSULTA_MS = 5_000L
@@ -25,10 +25,15 @@ class MainActivity : Activity() {
     private var idx = 0
     private var inicioTela = 0L
 
+    /** Rodízio pausado pelo botão do canto inferior direito; guarda quanto da tela já tinha passado. */
+    private var pausado = false
+    private var decorridoNaPausa = 0L
+
     private val tick = object : Runnable {
         override fun run() {
             val agora = SystemClock.uptimeMillis()
-            if (agora - inicioTela >= trocaTelaMs) irPara(idx + 1)
+            if (pausado) inicioTela = agora - decorridoNaPausa
+            else if (agora - inicioTela >= trocaTelaMs) irPara(idx + 1)
             painel.progressoTela = (agora - inicioTela) / trocaTelaMs.toFloat()
             painel.invalidate()
             ui.postDelayed(this, 200)
@@ -39,19 +44,47 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         painel = PainelView(this)
+        painel.acoes = this
         setContentView(painel)
 
-        coletor = Coletor(CONSULTA_MS) { cargo ->
+        coletor = Coletor(
+            CONSULTA_MS,
+            regioesDoCargo = { cargo ->
+                val malha = Malhas.doCargo(this, cargo)?.codigos.orEmpty().toList()
+                if (cargo == Cargo.PRESIDENTE) malha + "zz" else malha
+            },
+        ) { cargo ->
             ui.post { if (telas[idx].cargo == cargo) atualizarPainel() }
         }
-
-        // Toque: avança a tela. Toque longo: abre as configurações.
-        painel.setOnClickListener { irPara(idx + 1) }
-        painel.setOnLongClickListener {
-            startActivity(Intent(this, ConfigActivity::class.java))
-            true
-        }
     }
+
+    // ---- ações da tela (PainelView.Acoes) ----
+
+    /** Toque fora das áreas interativas: próxima tela. */
+    override fun avancar() = irPara(idx + 1)
+
+    override fun alternarPausa() {
+        pausado = !pausado
+        decorridoNaPausa = SystemClock.uptimeMillis() - inicioTela
+        painel.pausado = pausado
+        painel.invalidate()
+    }
+
+    /** Estado/município tocado no mapa ou na tabela (null = voltar ao total). */
+    override fun selecionar(regiao: String?) {
+        val cargo = telas[idx].cargo
+        if (!cargo.temMapa) return
+        coletor.selecionar(cargo, regiao)
+        // dá o tempo inteiro da tela para ver a região escolhida
+        if (!pausado) inicioTela = SystemClock.uptimeMillis()
+        atualizarPainel()
+    }
+
+    override fun configurar() {
+        startActivity(Intent(this, ConfigActivity::class.java))
+    }
+
+    // ---- rodízio ----
 
     private fun aplicarConfig() {
         val cfg = Config.carregar(this)
@@ -67,8 +100,12 @@ class MainActivity : Activity() {
     }
 
     private fun irPara(novo: Int) {
+        val anterior = telas.getOrNull(idx)?.cargo
         idx = ((novo % telas.size) + telas.size) % telas.size
+        // ao sair de uma tela com mapa, ela volta a mostrar o total na próxima vez
+        if (anterior != null && anterior != telas[idx].cargo && anterior.temMapa) coletor.selecionar(anterior, null)
         inicioTela = SystemClock.uptimeMillis()
+        decorridoNaPausa = 0
         atualizarPainel()
         painel.alpha = 0f
         painel.animate().alpha(1f).setDuration(350).start()
@@ -80,6 +117,10 @@ class MainActivity : Activity() {
         painel.indice = idx
         painel.total = telas.size
         painel.estado = coletor.estados[t.cargo] ?: Estado.Carregando
+        painel.andamento = coletor.andamentos[t.cargo].orEmpty()
+        painel.selecao = coletor.selecao[t.cargo]
+        painel.detalhe = coletor.detalhes[t.cargo]
+        painel.pausado = pausado
         painel.invalidate()
     }
 
