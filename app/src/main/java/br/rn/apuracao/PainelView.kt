@@ -568,7 +568,8 @@ class PainelView(ctx: Context) : View(ctx) {
             if (sel != null) OURO else TXT, condensedB, maxW = pr - pl)
         val subt = when {
             fonte != null -> "${pct(fonte.pctApurado)} das seções totalizadas" +
-                (fonte.secoesTotal.takeIf { it > 0 }?.let { " · ${int(fonte.secoesTotalizadas)} de ${int(it)}" } ?: "")
+                (fonte.secoesTotal.takeIf { it > 0 }?.let { " · ${int(fonte.secoesTotalizadas)} de ${int(it)}" } ?: "") +
+                (fonte.atualizado.takeIf { it.contains(" ") }?.let { " · TSE ${it.take(5)} ${it.substringAfter(" ").take(5)}" } ?: "")
             else -> mensagemEstado(if (sel != null) detalhe else estado).first
         }
         texto(c, subt, pl, top + 7.6f * u, caber(subt, condensed, 2f * u, pr - pl), TXT2, condensed)
@@ -588,6 +589,33 @@ class PainelView(ctx: Context) : View(ctx) {
         // candidatos
         val listaTop = top + 13.5f * u
         val cands = fonte?.candidatos.orEmpty()
+
+        // O TSE pode atualizar o andamento da região antes do arquivo de votos dela: em vez de mostrar
+        // 0,00% para todos, explica que os votos ainda não foram publicados.
+        val andamentoSel = sel?.let { cod -> andamento.firstOrNull { it.codigo == cod } }
+        if (sel != null && fonte != null && fonte.pctApurado <= 0.0 && cands.none { it.votos > 0 } &&
+            (andamentoSel?.pct ?: 0.0) > 0.0
+        ) {
+            val cx = (x0 + x1) / 2
+            val larg = x1 - x0 - 4f * u
+            var yy = listaTop + 6f * u
+            texto(c, "VOTOS AINDA NÃO PUBLICADOS", cx, yy, caber("VOTOS AINDA NÃO PUBLICADOS", bold, 2.6f * u, larg),
+                OURO, bold, Paint.Align.CENTER)
+            val linhas = listOf(
+                "O andamento indica ${pct(andamentoSel!!.pct)} das seções de",
+                "${Malhas.nome(context, cargo, sel)} totalizadas, mas o TSE ainda",
+                "não atualizou o arquivo de votos desta região.",
+                "",
+                "O painel mostra os votos assim que ele for publicado.",
+            )
+            yy += 4.5f * u
+            for (l in linhas) {
+                texto(c, l, cx, yy, caber(l, condensed, 2.2f * u, larg), TXT, condensed, Paint.Align.CENTER)
+                yy += 3f * u
+            }
+            return
+        }
+
         if (cands.isEmpty()) {
             val msg = if (sel != null && detalhe == Estado.Carregando) "Carregando…" else mensagemEstado(if (sel != null) detalhe else estado).second
             texto(c, msg, (x0 + x1) / 2, (listaTop + bot) / 2, 2.4f * u, TXT2, condensed, Paint.Align.CENTER, x1 - x0 - 4f * u)
