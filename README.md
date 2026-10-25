@@ -22,6 +22,11 @@ publicada; até lá, projeta pelo quociente partidário (10% do QE), sobras com 
 todos (decisão do STF de 2024) — ver `Projecao.kt` e `ProjecaoTest.kt`. Eleitos confirmados pelo TSE aparecem
 em verde com ✔.
 
+## 2º turno
+
+Nas configurações (toque longo) há a escolha do **turno**; a partir de 25/10/2026 o padrão é o 2º. No 2º turno só existem
+Presidente (`6258`) e Governador do RN (`6260`), exibidos em layout de duelo com barra dividida e marca dos 50%.
+
 ## Atualização
 
 - 1 requisição a cada **5 s** para **cada** cargo, em paralelo (usa `If-Modified-Since`).

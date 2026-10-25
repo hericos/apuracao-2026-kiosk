@@ -26,11 +26,14 @@ class ConfigActivity : Activity() {
     private lateinit var lblTempo: TextView
     private lateinit var seek: SeekBar
     private lateinit var swDemo: Switch
+    private lateinit var btTurno1: Button
+    private lateinit var btTurno2: Button
 
     private val BG = Color.parseColor("#0B1320")
     private val CARD = Color.parseColor("#15212F")
     private val TXT = Color.parseColor("#F3F6FA")
     private val TXT2 = Color.parseColor("#93A4B8")
+    private val CARD2 = Color.parseColor("#22344A")
 
     private fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
 
@@ -71,6 +74,18 @@ class ConfigActivity : Activity() {
         cardTempo.addView(linhaTempo, lp(top = 8))
         raiz.addView(cardTempo, lp(bottom = 24))
 
+        // ---- Turno ----
+        raiz.addView(titulo("Turno", 22f), lp(bottom = 8))
+        val cardTurno = card()
+        val linhaTurno = LinearLayout(this)
+        btTurno1 = botao("1º turno") { mudarTurno(1) }
+        btTurno2 = botao("2º turno") { mudarTurno(2) }
+        linhaTurno.addView(btTurno1, LinearLayout.LayoutParams(0, dp(64), 1f).apply { marginEnd = dp(12) })
+        linhaTurno.addView(btTurno2, LinearLayout.LayoutParams(0, dp(64), 1f))
+        cardTurno.addView(linhaTurno)
+        cardTurno.addView(texto("No 2º turno só há Presidente e Governador; as demais telas ficam ocultas.", 14f, TXT2), lp(top = 8))
+        raiz.addView(cardTurno, lp(bottom = 24))
+
         // ---- Telas: ordem e visibilidade ----
         raiz.addView(titulo("Telas — ordem e exibição", 22f), lp(bottom = 4))
         raiz.addView(texto("Desmarque para ocultar. Use ▲ ▼ para mudar a ordem.", 15f, TXT2), lp(bottom = 8))
@@ -105,7 +120,23 @@ class ConfigActivity : Activity() {
         lblTempo.text = "Tempo em cada tela: ${ajustes.segundos} s"
         seek.progress = ajustes.segundos - Config.SEGUNDOS_MIN
         swDemo.isChecked = ajustes.demo
+        marcarTurno()
         montarLista()
+    }
+
+    private fun mudarTurno(t: Int) {
+        ajustes = ajustes.copy(turno = t); salvar(); marcarTurno(); montarLista()
+    }
+
+    private fun marcarTurno() {
+        listOf(btTurno1 to 1, btTurno2 to 2).forEach { (b, t) ->
+            val sel = ajustes.turno == t
+            b.background = GradientDrawable().apply {
+                setColor(if (sel) Color.parseColor("#2D7FF9") else CARD2); cornerRadius = dp(10).toFloat()
+            }
+            b.setTextColor(if (sel) Color.WHITE else TXT2)
+            b.typeface = if (sel) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        }
     }
 
     private fun mudarTempo(s: Int) {
@@ -128,9 +159,10 @@ class ConfigActivity : Activity() {
             }
             linha.addView(faixa, LinearLayout.LayoutParams(dp(6), dp(40)).apply { marginEnd = dp(10) })
             val cb = CheckBox(this).apply {
-                text = "${i + 1}. ${Config.nome(item.tela)}"
+                val existe = item.tela.cargo.temTurno(ajustes.turno)
+                text = "${i + 1}. ${Config.nome(item.tela)}" + if (existe) "" else "  (sem 2º turno)"
                 textSize = 19f
-                setTextColor(if (item.visivel) TXT else TXT2)
+                setTextColor(if (item.visivel && existe) TXT else TXT2)
                 isChecked = item.visivel
                 setOnCheckedChangeListener { v, marcado ->
                     val novos = itens.toMutableList().also { it[i] = item.copy(visivel = marcado) }

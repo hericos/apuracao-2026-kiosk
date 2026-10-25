@@ -9,6 +9,10 @@ object Config {
     private const val K_ORDEM = "ordem"
     private const val K_OCULTAS = "ocultas"
     private const val K_DEMO = "demo"
+    private const val K_TURNO = "turno"
+
+    /** Data do 2º turno de 2026: a partir dela o turno padrão passa a ser o 2º. */
+    private const val DATA_2_TURNO = "2026-10-25"
 
     const val SEGUNDOS_PADRAO = 10
     const val SEGUNDOS_MIN = 3
@@ -26,11 +30,17 @@ object Config {
 
     data class Item(val tela: Tela, val visivel: Boolean)
 
-    data class Ajustes(val segundos: Int, val itens: List<Item>, val demo: Boolean) {
-        val telasAtivas: List<Tela> get() = itens.filter { it.visivel }.map { it.tela }
+    data class Ajustes(val segundos: Int, val itens: List<Item>, val demo: Boolean, val turno: Int) {
+        /** Telas visíveis que existem no turno escolhido (no 2º, só Presidente e Governador). */
+        val telasAtivas: List<Tela>
+            get() = itens.filter { it.visivel && it.tela.cargo.temTurno(turno) }.map { it.tela }
+                .ifEmpty { TELAS_PADRAO.filter { it.cargo.temTurno(turno) } }
     }
 
-    val PADRAO = Ajustes(SEGUNDOS_PADRAO, TELAS_PADRAO.map { Item(it, true) }, false)
+    fun turnoPadrao(): Int =
+        if (java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) >= DATA_2_TURNO) 2 else 1
+
+    val PADRAO get() = Ajustes(SEGUNDOS_PADRAO, TELAS_PADRAO.map { Item(it, true) }, false, turnoPadrao())
 
     fun nome(t: Tela): String = when {
         !t.cargo.proporcional -> t.cargo.titulo
@@ -52,6 +62,7 @@ object Config {
             segundos = p.getInt(K_SEGUNDOS, SEGUNDOS_PADRAO).coerceIn(SEGUNDOS_MIN, SEGUNDOS_MAX),
             itens = if (itens.any { it.visivel }) itens else PADRAO.itens,
             demo = p.getBoolean(K_DEMO, false),
+            turno = p.getInt(K_TURNO, turnoPadrao()).coerceIn(1, 2),
         )
     }
 
@@ -61,6 +72,7 @@ object Config {
             .putString(K_ORDEM, a.itens.joinToString(",") { chave(it.tela) })
             .putStringSet(K_OCULTAS, a.itens.filter { !it.visivel }.map { chave(it.tela) }.toSet())
             .putBoolean(K_DEMO, a.demo)
+            .putInt(K_TURNO, a.turno)
             .apply()
     }
 }

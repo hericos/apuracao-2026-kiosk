@@ -58,8 +58,10 @@ class MainActivity : Activity() {
         val atual = telas.getOrNull(idx)
         telas = cfg.telasAtivas
         trocaTelaMs = cfg.segundos * 1000L
-        if (coletor.demo != cfg.demo) coletor.demo = cfg.demo
+        coletor.demo = cfg.demo
+        coletor.turno = cfg.turno
         painel.demo = cfg.demo
+        painel.turno = cfg.turno
         // continua na mesma tela se ela ainda estiver visível; senão volta ao início
         irPara(telas.indexOf(atual).coerceAtLeast(0))
     }

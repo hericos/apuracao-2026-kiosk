@@ -5,11 +5,15 @@ import org.json.JSONObject
 
 private const val BASE = "https://resultados.tse.jus.br/oficial/ele2026"
 
-/** Códigos oficiais do TSE para 2026 (1º turno): 6257 = federal, 6259 = estadual. */
+/**
+ * Códigos oficiais do TSE para 2026: 1º turno 6257 (federal) e 6259 (estadual);
+ * 2º turno 6258 (federal) e 6260 (estadual). Só Presidente e Governador têm 2º turno.
+ */
 enum class Cargo(
     val titulo: String,
     val abrangencia: String,
-    val url: String,
+    private val url1: String,
+    private val url2: String?,
     val vagas: Int,
     val textoVagas: String,
     val proporcional: Boolean,
@@ -18,28 +22,33 @@ enum class Cargo(
     PRESIDENTE(
         "Presidente", "Brasil",
         "$BASE/6257/dados/br/br-c0001-e006257-u.json",
+        "$BASE/6258/dados/br/br-c0001-e006258-u.json",
         1, "1 vaga", false, 0xFF2D7FF9.toInt()
     ),
     GOVERNADOR(
         "Governador", "Rio Grande do Norte",
         "$BASE/6259/dados/rn/rn-c0003-e006259-u.json",
+        "$BASE/6260/dados/rn/rn-c0003-e006260-u.json",
         1, "1 vaga", false, 0xFF1E9E5A.toInt()
     ),
     SENADOR(
         "Senador", "Rio Grande do Norte",
-        "$BASE/6259/dados/rn/rn-c0005-e006259-u.json",
+        "$BASE/6259/dados/rn/rn-c0005-e006259-u.json", null,
         2, "2 vagas", false, 0xFF8E44AD.toInt()
     ),
     DEP_FEDERAL(
         "Deputado Federal", "Rio Grande do Norte",
-        "$BASE/6259/dados/rn/rn-c0006-e006259-u.json",
+        "$BASE/6259/dados/rn/rn-c0006-e006259-u.json", null,
         8, "8 vagas", true, 0xFFE67E22.toInt()
     ),
     DEP_ESTADUAL(
         "Deputado Estadual", "Rio Grande do Norte",
-        "$BASE/6259/dados/rn/rn-c0007-e006259-u.json",
+        "$BASE/6259/dados/rn/rn-c0007-e006259-u.json", null,
         24, "24 vagas", true, 0xFFD6336C.toInt()
     );
+
+    fun temTurno(turno: Int) = turno == 1 || url2 != null
+    fun url(turno: Int): String = if (turno == 2) url2 ?: url1 else url1
 }
 
 data class Candidato(
@@ -169,7 +178,9 @@ object Parser {
             secoesTotalizadas = s.num("st"),
             secoesTotal = if (s !== o) s.num("ts") else o.num("s"),
             atualizado = listOf(dg, hg).filter { it.isNotBlank() }.joinToString(" "),
-            validos = v.num("vv"), pctValidos = v.pct("pvv"),
+            // no arquivo completo "pvv" é relativo aos próprios válidos (100%); calcula sobre o total de votos
+            validos = v.num("vv"),
+            pctValidos = v.num("tv").takeIf { it > 0 }?.let { v.num("vv") * 100.0 / it } ?: v.pct("pvv"),
             brancos = v.num("vb"), pctBrancos = v.pct("pvb"),
             nulos = v.num("tvn").takeIf { it > 0 } ?: v.num("vn"),
             pctNulos = v.pct("ptvn").takeIf { it > 0 } ?: v.pct("pvn"),

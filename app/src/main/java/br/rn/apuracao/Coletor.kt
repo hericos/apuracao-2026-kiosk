@@ -27,11 +27,16 @@ class Coletor(
     private var exec: ScheduledExecutorService? = null
 
     @Volatile var demo = false
-        set(v) {
-            field = v; demoTick = 0; lastModified.clear()
-            // descarta resultados do modo anterior (teste x real)
-            Cargo.entries.forEach { estados[it] = Estado.Carregando }
-        }
+        set(v) { if (field != v) { field = v; reiniciarEstados() } }
+
+    @Volatile var turno = 1
+        set(v) { if (field != v) { field = v; reiniciarEstados() } }
+
+    /** Descarta resultados do modo anterior (teste x real, 1º x 2º turno). */
+    private fun reiniciarEstados() {
+        demoTick = 0; lastModified.clear()
+        Cargo.entries.forEach { estados[it] = Estado.Carregando }
+    }
     private var demoTick = 0
 
     fun iniciar(cargos: Set<Cargo> = Cargo.entries.toSet()) {
@@ -58,11 +63,11 @@ class Coletor(
     private fun buscar(cargo: Cargo) {
         try {
             if (demo) {
-                estados[cargo] = Estado.Ok(Demo.gerar(cargo, demoTick++), System.currentTimeMillis())
+                estados[cargo] = Estado.Ok(Demo.gerar(cargo, demoTick++, turno), System.currentTimeMillis())
                 aoAtualizar(cargo)
                 return
             }
-            val con = URL(cargo.url).openConnection() as HttpURLConnection
+            val con = URL(cargo.url(turno)).openConnection() as HttpURLConnection
             con.connectTimeout = 4_000
             con.readTimeout = 4_500
             con.useCaches = false
@@ -107,8 +112,8 @@ object Demo {
     )
     private val partidos = listOf("PT", "PL", "UNIÃO", "MDB", "PSD", "PP", "PSDB", "PSB", "REPUBLICANOS", "PDT", "PSOL", "NOVO")
 
-    fun gerar(cargo: Cargo, tick: Int): Resultado {
-        val n = when (cargo) {
+    fun gerar(cargo: Cargo, tick: Int, turno: Int = 1): Resultado {
+        val n = if (turno == 2) 2 else when (cargo) {
             Cargo.PRESIDENTE -> 9; Cargo.GOVERNADOR -> 6; Cargo.SENADOR -> 8
             Cargo.DEP_FEDERAL -> 95; Cargo.DEP_ESTADUAL -> 160
         }
